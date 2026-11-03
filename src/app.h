@@ -42,10 +42,12 @@ typedef enum {
 typedef struct {
     SDL_Renderer *renderer;
     Font font;
+    int font_size;
     int running;
 
     Tree tree;
     int tree_top;
+    int tree_left;  /* Columns the tree is scrolled sideways. */
     char *selected; /* Path of the highlighted tree row, or NULL. */
 
     Editor *tabs;   /* One open file per tab. */
@@ -75,6 +77,10 @@ void app_free(App *app);
 /* Mouse coordinates in events must already be in render coordinates. */
 void app_handle_event(App *app, const SDL_Event *event);
 void app_draw(App *app);
+
+/* Change the text size, in pixels. Screens differ in how many pixels they have
+ * per point, so this is needed when the window moves to another one. */
+void app_set_font_size(App *app, int font_size);
 
 /* Switch to the file's tab, or open it in a new one. */
 void app_open_file(App *app, const char *path);

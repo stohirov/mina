@@ -45,6 +45,22 @@ static const char *enter_start_folder(const char *arg) {
     return file;
 }
 
+/* An app opened from Finder or the Dock starts in "/", which is no place to edit
+ * files. Start in the home folder instead. */
+static void leave_root_folder(void) {
+    char folder[2];
+    const char *home = getenv("HOME");
+    if (home != NULL && getcwd(folder, sizeof(folder)) != NULL && strcmp(folder, "/") == 0) {
+        if (chdir(home) != 0) {
+            fprintf(stderr, "%s: %s\n", home, strerror(errno));
+        }
+    }
+}
+
+static int font_size_for(SDL_Window *window) {
+    return (int)(FONT_POINTS * SDL_GetWindowPixelDensity(window));
+}
+
 static int fail(const char *what) {
     fprintf(stderr, "%s: %s\n", what, SDL_GetError());
     return 1;
@@ -56,6 +72,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     const char *file = argc == 2 ? enter_start_folder(argv[1]) : NULL;
+    if (argc == 1) leave_root_folder();
 
     /* Ctrl-click is the usual right-click on a Mac with one mouse button. */
     SDL_SetHint(SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK, "1");
@@ -65,16 +82,14 @@ int main(int argc, char **argv) {
     SDL_Window *window;
     SDL_Renderer *renderer;
     if (!SDL_CreateWindowAndRenderer("Mina", 1000, 700,
-                                     SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY,
+                                     SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_HIGH_PIXEL_DENSITY,
                                      &window, &renderer)) {
         return fail("Cannot create window");
     }
     SDL_SetWindowMinimumSize(window, 500, 300);
 
-    /* On a Retina display the window has more pixels than points. */
     App app;
-    int font_size = (int)(FONT_POINTS * SDL_GetWindowPixelDensity(window));
-    if (app_init(&app, renderer, font_size) != 0) return fail("Cannot load font");
+    if (app_init(&app, renderer, font_size_for(window)) != 0) return fail("Cannot load font");
     if (file != NULL) app_open_file(&app, file);
 
     SDL_StartTextInput(window);
@@ -85,6 +100,10 @@ int main(int argc, char **argv) {
         if (!SDL_WaitEventTimeout(&event, 250)) continue;
         do {
             SDL_ConvertEventToRenderCoordinates(renderer, &event);
+            if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+                app_set_font_size(&app, font_size_for(window));
+            }
             app_handle_event(&app, &event);
         } while (SDL_PollEvent(&event));
 

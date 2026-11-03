@@ -77,6 +77,12 @@ cd "$ROOT"
 make clean
 make test DEP_CFLAGS="$DEP_CFLAGS" DEP_LIBS="$DEP_LIBS"
 
+# A tag such as v1.2.3 gives the app its version. Other builds are not releases.
+case "${GITHUB_REF_NAME:-}" in
+    v[0-9]*) VERSION=${GITHUB_REF_NAME#v} ;;
+    *) VERSION=0.0.0 ;;
+esac
+
 make clean
 make mina CC="$RELEASE_CC" CFLAGS="-std=gnu11 -Wall -Wextra -O2" \
     DEP_CFLAGS="$DEP_CFLAGS" DEP_LIBS="$DEP_LIBS"
@@ -104,3 +110,10 @@ cp mina README.md LICENSE THIRD_PARTY.md "$ROOT/dist/$PACKAGE/"
 tar -czf "$ROOT/dist/$PACKAGE.tar.gz" -C "$ROOT/dist" "$PACKAGE"
 rm -rf "$ROOT/dist/$PACKAGE"
 echo "Created dist/$PACKAGE.tar.gz"
+
+if [ "$(uname -s)" = Darwin ]; then
+    make app VERSION="$VERSION" CC="$RELEASE_CC" CFLAGS="-std=gnu11 -Wall -Wextra -O2" \
+        DEP_CFLAGS="$DEP_CFLAGS" DEP_LIBS="$DEP_LIBS"
+    ditto -c -k --keepParent Mina.app "$ROOT/dist/mina-macos-app.zip"
+    echo "Created dist/mina-macos-app.zip"
+fi
