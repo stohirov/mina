@@ -1,7 +1,8 @@
 name: Build
 
 # Every push and pull request is built and tested. Pushing a tag such as v0.1.0
-# also publishes the builds on the Releases page, where anyone can download them.
+# also publishes the builds on the Releases page, where anyone can download them,
+# and updates the Homebrew formula.
 on:
   push:
     branches: [main]
@@ -54,3 +55,23 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update the Homebrew formula
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "::error::HOMEBREW_TAP_DEPLOY_KEY is not set. Run scripts/setup-tap-deploy-key.sh."
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/tap_key
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          scripts/update-tap.sh "$GITHUB_REF_NAME"
