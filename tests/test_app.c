@@ -1685,6 +1685,129 @@ static void test_font_size(void) {
     end_test();
 }
 
+static void click_answer(Answer answer) {
+    SDL_Rect r = app_answer_rect(&app, answer);
+    CHECK(r.w > 0);
+    click(r.x + 1, r.y + 1);
+}
+
+static void test_question_window(void) {
+    start_test("question");
+    CHECK(fs_write_file("a.txt", "a", 1) == 0);
+    CHECK(fs_write_file("b.txt", "b", 1) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    SDL_Rect t = app_tree_rect(&app);
+    Color sidebar = theme_current()->sidebar;
+    CHECK(pixel_is(t.x + 1, t.y + t.h - 2, sidebar));
+
+    /* It is in the middle of the window, over everything else, which is dimmed. */
+    click_row("a.txt");
+    menu_choose(MENU_DELETE);
+    CHECK(app.mode == MODE_CONFIRM);
+    SDL_Rect box = app_question_rect(&app);
+    CHECK(box.x > 0 && box.x + box.w < 1000 && box.y > 0 && box.y + box.h < 700);
+    CHECK(abs(box.x - (1000 - box.x - box.w)) <= 1);
+    CHECK(abs(box.y - (700 - box.y - box.h)) <= 1);
+    CHECK(pixel_is(box.x + box.w / 2, box.y + 2, theme_current()->bar));
+    CHECK(area_has_ink(box.x + app.font.cell_w * 2, box.y + app.font.cell_h, app.font.cell_w * 8,
+                       app.font.cell_h, theme_current()->bar));
+    CHECK(!pixel_is(t.x + 1, t.y + t.h - 2, sidebar));
+
+    /* Deleting offers two buttons, inside the window. */
+    SDL_Rect yes = app_answer_rect(&app, ANSWER_YES);
+    SDL_Rect cancel = app_answer_rect(&app, ANSWER_CANCEL);
+    CHECK(app_answer_rect(&app, ANSWER_NO).w == 0);
+    CHECK(yes.x >= box.x && yes.x + yes.w <= cancel.x);
+    CHECK(cancel.x + cancel.w <= box.x + box.w && cancel.y + cancel.h <= box.y + box.h);
+
+    /* A click anywhere else does nothing, and does not change what gets deleted. */
+    click_row("b.txt");
+    click(box.x + 1, box.y + 1);
+    CHECK(app.mode == MODE_CONFIRM);
+    CHECK(strcmp(app.selected, "a.txt") == 0);
+
+    /* Cancel keeps the file, and the dimming goes. */
+    click_answer(ANSWER_CANCEL);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(access("a.txt", F_OK) == 0);
+    CHECK(pixel_is(t.x + 1, t.y + t.h - 2, sidebar));
+
+    /* Delete deletes. */
+    menu_choose(MENU_DELETE);
+    click_answer(ANSWER_YES);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(access("a.txt", F_OK) != 0);
+    CHECK(app.tab_count == 0);
+
+    /* A name: OK needs one, and takes what was typed. */
+    click_tree_empty();
+    menu_choose(MENU_NEW_FILE);
+    CHECK(app.mode == MODE_PROMPT);
+    CHECK(app_answer_rect(&app, ANSWER_NO).w == 0);
+    click_answer(ANSWER_YES);
+    CHECK(app.mode == MODE_PROMPT);
+    text("c.txt");
+    click_answer(ANSWER_YES);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(access("c.txt", F_OK) == 0);
+
+    /* Cancel drops the name. Clicks elsewhere leave it being typed. */
+    click_tree_empty();
+    menu_choose(MENU_NEW_FOLDER);
+    text("nope");
+    click_row("b.txt");
+    CHECK(app.mode == MODE_PROMPT);
+    click_answer(ANSWER_CANCEL);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(access("nope", F_OK) != 0);
+
+    /* Unsaved changes offer all three. Cancel keeps the tab. */
+    click_row("b.txt");
+    text("B");
+    click_tab_close("b.txt");
+    CHECK(app.mode == MODE_CONFIRM);
+    CHECK(app_answer_rect(&app, ANSWER_NO).w > 0);
+    click_answer(ANSWER_CANCEL);
+    CHECK(tab_index("b.txt") >= 0);
+    CHECK(EDITOR.buffer.dirty == 1);
+
+    /* Save writes the file and closes the tab. */
+    click_tab_close("b.txt");
+    click_answer(ANSWER_YES);
+    CHECK(tab_index("b.txt") == -1);
+    CHECK(file_is("b.txt", "Bb"));
+
+    /* Discard leaves the file alone, and works when quitting too. */
+    click_row("b.txt");
+    text("X");
+    send_type(SDL_EVENT_QUIT);
+    CHECK(app.mode == MODE_CONFIRM);
+    CHECK(app.running == 1);
+    click_answer(ANSWER_NO);
+    CHECK(app.running == 0);
+    CHECK(file_is("b.txt", "Bb"));
+    app.running = 1;
+
+    /* A long name wraps, and everything stays inside the window. */
+    char name[201];
+    memset(name, 'n', 200);
+    name[200] = '\0';
+    CHECK(fs_write_file(name, "", 0) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row(name);
+    menu_choose(MENU_RENAME);
+    CHECK(app.mode == MODE_PROMPT);
+    SDL_Rect tall = app_question_rect(&app);
+    SDL_Rect ok = app_answer_rect(&app, ANSWER_YES);
+    CHECK(tall.h > box.h + app.font.cell_h * 2);
+    CHECK(tall.x + tall.w <= 1000 && tall.y + tall.h <= 700);
+    CHECK(ok.y > tall.y + app.font.cell_h * 4 && ok.y + ok.h <= tall.y + tall.h);
+    click_answer(ANSWER_CANCEL);
+    CHECK(access(name, F_OK) == 0);
+
+    end_test();
+}
+
 static void test_themes_and_drawing(void) {
     start_test("draw");
     SDL_Rect e = app_editor_rect(&app);
@@ -1740,6 +1863,7 @@ int main(void) {
     test_delete();
     test_tabs();
     test_closing_unsaved_tabs();
+    test_question_window();
     test_tabs_follow_files();
     test_many_tabs();
     test_right_click_menu();

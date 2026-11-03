@@ -111,9 +111,9 @@ tree offers the first two, for the top folder.
 | Rename     | Rename the file or folder                                    |
 | Delete     | Delete the file, or the folder with its contents             |
 
-Questions appear in the status bar at the bottom: type a name and press Enter, or
-answer `y` or `n`. Esc cancels. Open Folder, Save and Theme are in the top right
-corner. Opening a folder closes the open tabs, and asks first about unsaved ones.
+Questions open in a window over the editor, which must be answered before anything
+else: type a name and press Enter, answer `y` or `n`, or click a button. Esc cancels.
+Open Folder, Save and Theme are in the top right corner. Opening a folder closes the open tabs, and asks first about unsaved ones.
 
 Drag with the mouse, or hold Shift while moving the cursor, to select text.
 

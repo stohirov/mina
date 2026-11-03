@@ -15,6 +15,7 @@
 #define WHEEL_LINES 3
 #define MAX_TAB_NAME 24
 #define MENU_COLS 12
+#define QUESTION_COLS 56
 
 static const char *const button_labels[BUTTON_COUNT] = {"Open Folder", "Save", "Theme"};
 
@@ -112,6 +113,94 @@ SDL_Rect app_tab_close_rect(const App *app, int tab) {
 SDL_Rect app_menu_item_rect(const App *app, int index) {
     int height = app->font.cell_h + app->font.cell_w / 2;
     return (SDL_Rect){app->menu_x, app->menu_y + index * height, app->font.cell_w * MENU_COLS, height};
+}
+
+/* The text columns of the question window. */
+static int question_cols(const App *app) {
+    int w, h;
+    output_size(app, &w, &h);
+    return SDL_clamp(w / app->font.cell_w - 6, 1, QUESTION_COLS);
+}
+
+/* How much of the text goes on one row, ending at a space if there is one. */
+static int wrapped_len(const char *text, int cols) {
+    int len = (int)strlen(text);
+    if (len <= cols) return len;
+    for (int i = cols; i > 0; i--) {
+        if (text[i] == ' ') return i;
+    }
+    return cols;
+}
+
+/* Where the row after this one starts. */
+static const char *next_row(const char *text, int len) {
+    return text[len] == ' ' ? text + len + 1 : text + len;
+}
+
+static int question_rows(const App *app) {
+    int cols = question_cols(app);
+    int rows = 0;
+    for (const char *p = app->question; *p != '\0'; rows++) {
+        p = next_row(p, wrapped_len(p, cols));
+    }
+    return rows;
+}
+
+static int input_height(const App *app) {
+    return app->font.cell_h + app->font.cell_w / 2;
+}
+
+static int answer_height(const App *app) {
+    return bar_height(app) - app->font.cell_w / 2;
+}
+
+SDL_Rect app_question_rect(const App *app) {
+    int w, h;
+    output_size(app, &w, &h);
+    int cell_h = app->font.cell_h;
+    int height = cell_h * (question_rows(app) + 2) + answer_height(app) + app->font.cell_w;
+    if (app->mode == MODE_PROMPT) height += cell_h / 2 + input_height(app);
+    int width = (question_cols(app) + 4) * app->font.cell_w;
+    return (SDL_Rect){SDL_max((w - width) / 2, 0), SDL_max((h - height) / 2, 0), width, height};
+}
+
+/* Where the name is typed: below the question. */
+static SDL_Rect input_rect(const App *app) {
+    SDL_Rect box = app_question_rect(app);
+    int y = box.y + app->font.cell_h * (question_rows(app) + 1) + app->font.cell_h / 2;
+    return (SDL_Rect){box.x + app->font.cell_w * 2, y, question_cols(app) * app->font.cell_w,
+                      input_height(app)};
+}
+
+/* Each button names the key that does the same. Deleting has nothing to
+ * discard, and a name is either given or not. */
+static const char *answer_label(const App *app, Answer answer) {
+    switch (answer) {
+        case ANSWER_YES:
+            if (app->mode == MODE_PROMPT) return "OK (Enter)";
+            return app->action == ACTION_DELETE ? "Delete (y)" : "Save (y)";
+        case ANSWER_NO:
+            return app->action == ACTION_CLOSE_TAB ? "Discard (n)" : NULL;
+        default:
+            return "Cancel (Esc)";
+    }
+}
+
+static int answer_width(const App *app, Answer answer) {
+    const char *label = answer_label(app, answer);
+    return label != NULL ? ((int)strlen(label) + 2) * app->font.cell_w : 0;
+}
+
+/* The buttons sit in the bottom right corner of the window, with Cancel last. */
+SDL_Rect app_answer_rect(const App *app, Answer answer) {
+    SDL_Rect box = app_question_rect(app);
+    int x = box.x + box.w - app->font.cell_w;
+    for (int i = ANSWER_COUNT - 1; i >= (int)answer; i--) {
+        int width = answer_width(app, (Answer)i);
+        if (width > 0) x -= width + app->font.cell_w;
+    }
+    int height = answer_height(app);
+    return (SDL_Rect){x, box.y + box.h - height - app->font.cell_w, answer_width(app, answer), height};
 }
 
 /* Far enough to bring the end of the longest visible row into view. */
@@ -227,8 +316,7 @@ static void back_to_editing(App *app) {
 
 static void ask_about_unsaved_changes(App *app) {
     char question[512];
-    snprintf(question, sizeof(question), "Save changes to %s? y = save, n = discard, Esc = cancel",
-             app->tabs[app->active].path);
+    snprintf(question, sizeof(question), "Save changes to %s?", app->tabs[app->active].path);
     ask_confirm(app, ACTION_CLOSE_TAB, question);
 }
 
@@ -486,8 +574,8 @@ static void run_menu_item(App *app, MenuItem item) {
             if (index >= 0) {
                 snprintf(question, sizeof(question),
                          app->tree.rows[index].is_dir
-                             ? "Delete folder %s and everything in it? y = delete, n = cancel"
-                             : "Delete file %s? y = delete, n = cancel",
+                             ? "Delete folder %s and everything in it?"
+                             : "Delete file %s?",
                          app->selected);
                 ask_confirm(app, ACTION_DELETE, question);
             }
@@ -714,6 +802,22 @@ static void place_cursor(App *app, int x, int y, int extend) {
     editor_click(e, row, col, extend);
 }
 
+static void on_answer_click(App *app, int x, int y) {
+    for (int i = 0; i < ANSWER_COUNT; i++) {
+        SDL_Rect button = app_answer_rect(app, (Answer)i);
+        if (!point_in(&button, x, y)) continue;
+
+        if (i == ANSWER_CANCEL) {
+            back_to_editing(app);
+        } else if (app->mode == MODE_PROMPT) {
+            submit_name(app);
+        } else {
+            on_confirm_answer(app, i == ANSWER_YES ? 'y' : 'n');
+        }
+        return;
+    }
+}
+
 static void on_click(App *app, int x, int y) {
     if (app->mode == MODE_MENU) {
         int index = menu_item_at(app, x, y);
@@ -722,8 +826,11 @@ static void on_click(App *app, int x, int y) {
         run_menu_item(app, item);
         return;
     }
-    /* A question is waiting: only y, n or Esc may answer it. */
-    if (app->mode != MODE_EDIT) return;
+    /* A question is waiting: only its window takes clicks. */
+    if (app->mode != MODE_EDIT) {
+        on_answer_click(app, x, y);
+        return;
+    }
 
     SDL_Rect open_folder = app_button_rect(app, BUTTON_OPEN_FOLDER);
     if (point_in(&open_folder, x, y)) {
@@ -987,14 +1094,8 @@ static void draw_status(App *app) {
     fill_rect(app, 0, h - bar, w, bar, theme->bar);
 
     char text[1024];
-    int show_cursor = 0;
     const Editor *e = current_tab(app);
-    if (app->mode == MODE_PROMPT) {
-        snprintf(text, sizeof(text), "%s: %s", app->question, app->input);
-        show_cursor = 1;
-    } else if (app->mode == MODE_CONFIRM) {
-        snprintf(text, sizeof(text), "%s", app->question);
-    } else if (app->message[0] != '\0') {
+    if (app->message[0] != '\0') {
         snprintf(text, sizeof(text), "%s", app->message);
     } else if (e != NULL) {
         snprintf(text, sizeof(text), "%s%s | Ln %d/%d, Col %d | %s theme", e->path,
@@ -1004,17 +1105,7 @@ static void draw_status(App *app) {
         snprintf(text, sizeof(text), "No file open | %s theme", theme->name);
     }
 
-    /* If it does not fit, show the end: that is where the typing happens. */
-    int max_chars = SDL_max(w / app->font.cell_w - 2, 1);
-    int len = (int)strlen(text);
-    int start = (show_cursor && len > max_chars) ? len - max_chars : 0;
-    int x = app->font.cell_w;
-    int y = h - bar + app->font.cell_w / 2;
-    font_draw_text(&app->font, x, y, text + start, theme->text);
-    if (show_cursor) {
-        fill_rect(app, x + (len - start) * app->font.cell_w, y,
-                  SDL_max(app->font.cell_w / 5, 1), app->font.cell_h, theme->cursor);
-    }
+    font_draw_text(&app->font, app->font.cell_w, h - bar + app->font.cell_w / 2, text, theme->text);
 }
 
 static void draw_menu(const App *app) {
@@ -1032,6 +1123,57 @@ static void draw_menu(const App *app) {
     }
 }
 
+static void draw_input(const App *app) {
+    const Theme *theme = theme_current();
+    SDL_Rect rect = input_rect(app);
+    fill_rect(app, rect.x, rect.y, rect.w, rect.h, theme->background);
+
+    /* If it does not fit, show the end: that is where the typing happens. */
+    int cols = question_cols(app) - 2;
+    int len = (int)strlen(app->input);
+    int start = SDL_max(len - cols, 0);
+    int x = rect.x + app->font.cell_w;
+    int y = rect.y + (rect.h - app->font.cell_h) / 2;
+    font_draw_text(&app->font, x, y, app->input + start, theme->text);
+    fill_rect(app, x + (len - start) * app->font.cell_w, y, SDL_max(app->font.cell_w / 5, 1),
+              app->font.cell_h, theme->cursor);
+}
+
+/* Dim everything else, so that the question cannot be missed. */
+static void draw_question(const App *app) {
+    const Theme *theme = theme_current();
+    SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(app->renderer, 0, 0, 0, 140);
+    SDL_RenderFillRect(app->renderer, NULL);
+    SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_NONE);
+
+    SDL_Rect box = app_question_rect(app);
+    int border = SDL_max(app->font.cell_w / 8, 1);
+    fill_rect(app, box.x - border, box.y - border, box.w + 2 * border, box.h + 2 * border, theme->button);
+    fill_rect(app, box.x, box.y, box.w, box.h, theme->bar);
+
+    int cols = question_cols(app);
+    int y = box.y + app->font.cell_h;
+    for (const char *p = app->question; *p != '\0'; y += app->font.cell_h) {
+        int len = wrapped_len(p, cols);
+        for (int i = 0; i < len; i++) {
+            font_draw_char(&app->font, box.x + app->font.cell_w * (i + 2), y, p[i], theme->text);
+        }
+        p = next_row(p, len);
+    }
+
+    if (app->mode == MODE_PROMPT) draw_input(app);
+
+    for (int i = 0; i < ANSWER_COUNT; i++) {
+        const char *label = answer_label(app, (Answer)i);
+        if (label == NULL) continue;
+        SDL_Rect r = app_answer_rect(app, (Answer)i);
+        fill_rect(app, r.x, r.y, r.w, r.h, i == ANSWER_YES ? theme->selected : theme->button);
+        font_draw_text(&app->font, r.x + app->font.cell_w, r.y + (r.h - app->font.cell_h) / 2, label,
+                       theme->text);
+    }
+}
+
 void app_draw(App *app) {
     Color background = theme_current()->background;
     SDL_SetRenderDrawColor(app->renderer, background.r, background.g, background.b, 255);
@@ -1045,6 +1187,7 @@ void app_draw(App *app) {
     draw_top_bar(app);
     draw_status(app);
     if (app->mode == MODE_MENU) draw_menu(app);
+    if (app->mode == MODE_PROMPT || app->mode == MODE_CONFIRM) draw_question(app);
 }
 
 /* ---------- Lifetime ---------- */

@@ -11,8 +11,8 @@
 
 typedef enum {
     MODE_EDIT,    /* Typing goes to the open file. */
-    MODE_PROMPT,  /* Typing goes to the status bar, for a name. */
-    MODE_CONFIRM, /* Waiting for y or n. */
+    MODE_PROMPT,  /* A window asks for a name, and typing goes to it. */
+    MODE_CONFIRM, /* A window asks a question, for y, n or a click. */
     MODE_MENU     /* The right-click menu is open. */
 } Mode;
 
@@ -39,6 +39,14 @@ typedef enum {
     MENU_DELETE,
     MENU_ITEM_COUNT
 } MenuItem;
+
+/* The buttons of the question window. */
+typedef enum {
+    ANSWER_YES,
+    ANSWER_NO,
+    ANSWER_CANCEL,
+    ANSWER_COUNT
+} Answer;
 
 typedef struct {
     SDL_Renderer *renderer;
@@ -101,5 +109,8 @@ SDL_Rect app_editor_rect(const App *app);
 SDL_Rect app_tab_rect(const App *app, int tab);
 SDL_Rect app_tab_close_rect(const App *app, int tab);
 SDL_Rect app_menu_item_rect(const App *app, int index);
+SDL_Rect app_question_rect(const App *app);
+/* Has no width if the current question does not offer this answer. */
+SDL_Rect app_answer_rect(const App *app, Answer answer);
 
 #endif
