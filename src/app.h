@@ -1,6 +1,5 @@
-/* The application window: toolbar, folder tree, text area and status bar. All
- * paths are relative to the current working directory, which is the top of the
- * tree. */
+/* The application window: folder tree, tabs, text area and status bar. All paths
+ * are relative to the current working directory, which is the top of the tree. */
 #ifndef APP_H
 #define APP_H
 
@@ -13,7 +12,8 @@
 typedef enum {
     MODE_EDIT,    /* Typing goes to the open file. */
     MODE_PROMPT,  /* Typing goes to the status bar, for a name. */
-    MODE_CONFIRM  /* Waiting for y or n. */
+    MODE_CONFIRM, /* Waiting for y or n. */
+    MODE_MENU     /* The right-click menu is open. */
 } Mode;
 
 typedef enum {
@@ -22,18 +22,22 @@ typedef enum {
     ACTION_NEW_FOLDER,
     ACTION_RENAME,
     ACTION_DELETE,
-    ACTION_SAVE_CHANGES
+    ACTION_CLOSE_TAB
 } Action;
 
 typedef enum {
-    BUTTON_NEW_FILE,
-    BUTTON_NEW_FOLDER,
-    BUTTON_RENAME,
-    BUTTON_DELETE,
     BUTTON_SAVE,
     BUTTON_THEME,
     BUTTON_COUNT
 } Button;
+
+typedef enum {
+    MENU_NEW_FILE,
+    MENU_NEW_FOLDER,
+    MENU_RENAME,
+    MENU_DELETE,
+    MENU_ITEM_COUNT
+} MenuItem;
 
 typedef struct {
     SDL_Renderer *renderer;
@@ -44,16 +48,22 @@ typedef struct {
     int tree_top;
     char *selected; /* Path of the highlighted tree row, or NULL. */
 
-    Editor editor;
-    int has_file;
-    int dragging; /* 1 while the mouse is selecting text. */
+    Editor *tabs;   /* One open file per tab. */
+    int tab_count;
+    int active;     /* Index of the visible tab. */
+    int first_tab;  /* Leftmost tab on screen, when they do not all fit. */
+    int dragging;   /* 1 while the mouse is selecting text. */
 
     Mode mode;
     Action action;
     char input[256];
     char question[512];
-    char *pending_open; /* File to open after answering about unsaved changes. */
-    int pending_quit;   /* Quit after answering about unsaved changes. */
+    int pending_quit; /* Quit once every unsaved tab has been answered for. */
+
+    MenuItem menu_items[MENU_ITEM_COUNT];
+    int menu_count;
+    int menu_x, menu_y;
+    int menu_hover; /* Index of the item under the mouse, or -1. */
 
     char message[512];
 } App;
@@ -66,10 +76,14 @@ void app_free(App *app);
 void app_handle_event(App *app, const SDL_Event *event);
 void app_draw(App *app);
 
+/* Switch to the file's tab, or open it in a new one. */
 void app_open_file(App *app, const char *path);
 
 SDL_Rect app_button_rect(const App *app, Button button);
 SDL_Rect app_tree_rect(const App *app);
 SDL_Rect app_editor_rect(const App *app);
+SDL_Rect app_tab_rect(const App *app, int tab);
+SDL_Rect app_tab_close_rect(const App *app, int tab);
+SDL_Rect app_menu_item_rect(const App *app, int index);
 
 #endif

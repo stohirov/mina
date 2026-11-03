@@ -66,43 +66,46 @@ git push origin v0.2.0
 
 ## Using it
 
-Click a file in the tree to open it, and click a folder to open or close it.
+Click a file in the tree to open it in a tab, and click a folder to open or close
+it. Right-click a file or folder for this menu. Right-clicking empty space in the
+tree offers the first two, for the top folder.
 
-| Button     | Action                                                 |
-| ---------- | ------------------------------------------------------ |
-| New File   | Create a file in the selected folder and open it       |
-| New Folder | Create a folder in the selected folder                 |
-| Rename     | Rename the selected file or folder                     |
-| Delete     | Delete the selected file, or folder with its contents  |
-| Save       | Save the open file                                     |
-| Theme      | Switch between dark and light                          |
+| Menu item  | Action                                                       |
+| ---------- | ------------------------------------------------------------ |
+| New File   | Create a file there and open it                              |
+| New Folder | Create a folder there                                        |
+| Rename     | Rename the file or folder                                    |
+| Delete     | Delete the file, or the folder with its contents             |
 
-Click empty space in the tree to clear the selection, so new items go in the top
-folder. Questions appear in the status bar at the bottom: type a name and press
-Enter, or answer `y` or `n`. Esc cancels.
+Questions appear in the status bar at the bottom: type a name and press Enter, or
+answer `y` or `n`. Esc cancels. Save and Theme are in the top right corner.
 
 Drag with the mouse, or hold Shift while moving the cursor, to select text.
 
-| Key                 | Action               |
-| ------------------- | -------------------- |
-| Cmd-S or Ctrl-S     | Save                 |
-| Cmd-C or Ctrl-C     | Copy the selection   |
-| Cmd-V or Ctrl-V     | Paste                |
-| Cmd-Z or Ctrl-Z     | Undo                 |
-| Cmd-Q or Ctrl-Q     | Quit                 |
-| Arrows, Home, End   | Move the cursor      |
-| Cmd-Left, Cmd-Right | Line start, line end |
-| Page Up, Page Down  | Move one screen      |
+| Key                 | Action                 |
+| ------------------- | ---------------------- |
+| Cmd-S or Ctrl-S     | Save                   |
+| Cmd-C or Ctrl-C     | Copy the selection     |
+| Cmd-V or Ctrl-V     | Paste                  |
+| Cmd-Z or Ctrl-Z     | Undo                   |
+| Cmd-W or Ctrl-W     | Close the tab          |
+| Ctrl-Tab            | Next tab               |
+| Ctrl-Shift-Tab      | Previous tab           |
+| Cmd-Q or Ctrl-Q     | Quit                   |
+| Arrows, Home, End   | Move the cursor        |
+| Cmd-Left, Cmd-Right | Line start, line end   |
+| Page Up, Page Down  | Move one screen        |
 
-Undo goes back up to 1000 steps per open file, and a typed word or a run of
-Backspace counts as one step. The history is lost when you open another file.
+Each tab has its own undo history of up to 1000 steps, and a typed word or a run
+of Backspace counts as one step. The history is lost when the tab closes. If tabs
+do not all fit, scroll over them with the mouse wheel.
 
 ## Code
 
 | File                | Purpose                                        |
 | ------------------- | ---------------------------------------------- |
 | `src/main.c`        | Startup, window and event loop                 |
-| `src/app.c`         | Toolbar, tree, text area, status bar and input |
+| `src/app.c`         | Tree, tabs, menu, text area and status bar     |
 | `src/editor.c`      | The open file: editing, cursor and scrolling   |
 | `src/buffer.c`      | The text, as an array of lines                 |
 | `src/tree.c`        | The rows of the folder tree                    |
@@ -116,6 +119,5 @@ Backspace counts as one step. The history is lost when you open another file.
 
 - English only: you can type printable ASCII, and any other character in a file
   or pasted in is shown as `?`. Those bytes are still saved unchanged.
-- One file is open at a time.
 - There is no redo, cut or search.
 - Saving overwrites the file in place, so a crash mid-save can damage it.

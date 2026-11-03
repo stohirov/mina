@@ -57,6 +57,9 @@ int main(int argc, char **argv) {
     }
     const char *file = argc == 2 ? enter_start_folder(argv[1]) : NULL;
 
+    /* Ctrl-click is the usual right-click on a Mac with one mouse button. */
+    SDL_SetHint(SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK, "1");
+
     if (!SDL_Init(SDL_INIT_VIDEO)) return fail("Cannot start SDL");
 
     SDL_Window *window;
