@@ -1,0 +1,4 @@
+editor
+run_tests
+*.dSYM/
+*.o
