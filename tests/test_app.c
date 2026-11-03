@@ -1356,6 +1356,152 @@ static void test_selection_is_drawn(void) {
     end_test();
 }
 
+static void wheel_sideways(int x, int y, int ticks) {
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_EVENT_MOUSE_WHEEL;
+    event.wheel.integer_x = ticks;
+    event.wheel.mouse_x = (float)x;
+    event.wheel.mouse_y = (float)y;
+    send(&event);
+}
+
+static void test_tree_scrolls_sideways(void) {
+    start_test("sideways");
+    SDL_Rect t = app_tree_rect(&app);
+    int h = app.font.cell_h;
+    Color sidebar = theme_current()->sidebar;
+
+    /* Names that fit have nowhere to go. */
+    CHECK(fs_create_file("short.txt") == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    wheel_sideways(t.x + 1, t.y + 1, 5);
+    CHECK(app.tree_left == 0);
+
+    /* A long name, inside a folder so that its indent counts too. */
+    char name[81];
+    memset(name, 'n', 80);
+    name[80] = '\0';
+    char path[100];
+    snprintf(path, sizeof(path), "dir/%s", name);
+    CHECK(fs_create_folder("dir") == 0);
+    CHECK(fs_create_file(path) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("dir");
+    click_tree_empty();
+
+    /* The row is cut off at the edge of the tree to begin with. */
+    int row = tree_find(&app.tree, path);
+    int y = t.y + row * h + h / 2;
+    CHECK(area_has_ink(t.x + t.w - app.font.cell_w, t.y + row * h, app.font.cell_w, h, sidebar));
+
+    /* It scrolls in steps, and stops once the end of the name is in view. */
+    wheel_sideways(t.x + 1, y, 1);
+    CHECK(app.tree_left == 3);
+    wheel_sideways(t.x + 1, y, 1000);
+    int expected = 2 + 3 + 80 + 1 - t.w / app.font.cell_w;
+    CHECK(app.tree_left == expected);
+
+    /* The last letter is on screen, with a little space after it. */
+    int end_x = t.x + (2 + 3 + 80 - app.tree_left) * app.font.cell_w;
+    CHECK(end_x <= t.x + t.w);
+    CHECK(area_has_ink(end_x - app.font.cell_w, t.y + row * h, app.font.cell_w, h, sidebar));
+    CHECK(!area_has_ink(end_x, t.y + row * h, t.x + t.w - end_x, h, sidebar));
+
+    /* Text stays inside the tree, leaving the text area clear. */
+    SDL_Rect e = app_editor_rect(&app);
+    CHECK(!area_has_ink(t.x + t.w, e.y, e.x - t.x - t.w, h, theme_current()->background));
+
+    /* Clicks still land on the right rows. */
+    click_row(path);
+    CHECK(strcmp(EDITOR.path, path) == 0);
+    click_row("short.txt");
+    CHECK(strcmp(EDITOR.path, "short.txt") == 0);
+    CHECK(app.tree_left == expected);
+
+    /* Vertical scrolling leaves it alone, and it stops at the other end too. */
+    wheel(t.x + 1, y, -1);
+    CHECK(app.tree_left == expected);
+    wheel(t.x + 1, y, 1);
+    wheel_sideways(t.x + 1, y, -1000);
+    CHECK(app.tree_left == 0);
+
+    /* The wheel over the text area does not move the tree. */
+    wheel_sideways(e.x + 1, e.y + 1, 5);
+    CHECK(app.tree_left == 0);
+
+    /* Closing the folder removes the long row, so there is nothing left to scroll. */
+    wheel_sideways(t.x + 1, y, 1000);
+    CHECK(app.tree_left > 0);
+    click_row("dir");
+    CHECK(tree_find(&app.tree, path) == -1);
+    CHECK(app.tree_left == 0);
+    end_test();
+}
+
+static void test_font_size(void) {
+    start_test("fontsize");
+    char big[2000] = "";
+    for (int i = 0; i < 100; i++) strcat(big, "row\n");
+    CHECK(fs_write_file("big.txt", big, strlen(big)) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("big.txt");
+    int original = app.font_size;
+    int cell_w = app.font.cell_w;
+    int cell_h = app.font.cell_h;
+    int rows = app_editor_rect(&app).h / cell_h;
+
+    /* The same size changes nothing, and does not reload the font. */
+    SDL_Texture *atlas = app.font.atlas;
+    app_set_font_size(&app, original);
+    CHECK(app.font.atlas == atlas);
+
+    /* Put the cursor on the last visible row, then double the text size, as when
+     * the window moves to a screen with twice the pixels per point. */
+    click(col_x(0), row_y(rows - 1));
+    mouse_up();
+    CHECK(EDITOR.row == rows - 1);
+    app_set_font_size(&app, original * 2);
+    app_draw(&app);
+    SDL_RenderPresent(app.renderer);
+    CHECK(app.font_size == original * 2);
+    CHECK(app.font.cell_w > cell_w);
+    CHECK(app.font.cell_h > cell_h);
+
+    /* Fewer rows fit now, and the cursor is still on one of them. */
+    int fewer = app_editor_rect(&app).h / app.font.cell_h;
+    CHECK(fewer < rows);
+    CHECK(EDITOR.row >= EDITOR.top && EDITOR.row < EDITOR.top + fewer);
+    CHECK(area_has_ink(app_editor_rect(&app).x, app_editor_rect(&app).y, app.font.cell_w * 3,
+                       app.font.cell_h, theme_current()->background));
+
+    /* Clicks use the new size. */
+    int top = EDITOR.top;
+    click(app_editor_rect(&app).x + app.font.cell_w * 2 + 1, app_editor_rect(&app).y + app.font.cell_h + 1);
+    mouse_up();
+    CHECK(EDITOR.row == top + 1 && EDITOR.col == 2);
+    click_tab_close("big.txt");
+    CHECK(app.tab_count == 0);
+    click_row("big.txt");
+    CHECK(strcmp(EDITOR.path, "big.txt") == 0);
+
+    /* An open menu would be in the wrong place, so it closes. */
+    right_click_row("big.txt");
+    CHECK(app.mode == MODE_MENU);
+    app_set_font_size(&app, original);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(app.font.cell_w == cell_w && app.font.cell_h == cell_h);
+
+    /* A question stays open, since nothing about it depends on the size. */
+    menu_choose(MENU_RENAME);
+    CHECK(app.mode == MODE_PROMPT);
+    app_set_font_size(&app, original * 2);
+    CHECK(app.mode == MODE_PROMPT);
+    app_set_font_size(&app, original);
+    key(SDLK_ESCAPE);
+    end_test();
+}
+
 static void test_themes_and_drawing(void) {
     start_test("draw");
     SDL_Rect e = app_editor_rect(&app);
@@ -1414,6 +1560,8 @@ int main(void) {
     test_tabs_follow_files();
     test_many_tabs();
     test_right_click_menu();
+    test_tree_scrolls_sideways();
+    test_font_size();
     test_layout();
     test_quit();
     test_non_english_input_and_exact_saves();

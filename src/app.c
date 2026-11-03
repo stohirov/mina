@@ -71,6 +71,11 @@ static int editor_cols(const App *app) {
     return SDL_max(app_editor_rect(app).w / app->font.cell_w, 1);
 }
 
+/* Columns before a row's name: its depth, then the folder marker. */
+static int tree_row_indent(const TreeRow *row) {
+    return row->depth * 2 + 3;
+}
+
 /* The space for tabs: from the sidebar to the first button. */
 static SDL_Rect tab_strip_rect(const App *app) {
     int x = sidebar_width(app);
@@ -107,6 +112,16 @@ SDL_Rect app_tab_close_rect(const App *app, int tab) {
 SDL_Rect app_menu_item_rect(const App *app, int index) {
     int height = app->font.cell_h + app->font.cell_w / 2;
     return (SDL_Rect){app->menu_x, app->menu_y + index * height, app->font.cell_w * MENU_COLS, height};
+}
+
+/* Far enough to bring the end of the longest visible row into view. */
+static int tree_max_left(const App *app) {
+    int longest = 0;
+    for (int i = 0; i < app->tree.count; i++) {
+        const TreeRow *row = &app->tree.rows[i];
+        longest = SDL_max(longest, tree_row_indent(row) + (int)strlen(row->name) + 1);
+    }
+    return SDL_max(longest - SIDEBAR_COLS, 0);
 }
 
 static int point_in(const SDL_Rect *r, int x, int y) {
@@ -714,6 +729,8 @@ static void on_wheel(App *app, const SDL_MouseWheelEvent *wheel) {
     if (point_in(&tree, x, y)) {
         int top = app->tree_top - amount;
         app->tree_top = SDL_clamp(top, 0, SDL_max(app->tree.count - 1, 0));
+        int left = app->tree_left + wheel->integer_x * WHEEL_LINES;
+        app->tree_left = SDL_clamp(left, 0, tree_max_left(app));
     } else if (point_in(&strip, x, y)) {
         int first = app->first_tab - wheel->integer_y + wheel->integer_x;
         app->first_tab = SDL_clamp(first, 0, SDL_max(app->tab_count - 1, 0));
@@ -826,11 +843,12 @@ static void draw_tree(const App *app) {
             fill_rect(app, rect.x, y, rect.w, app->font.cell_h, theme->selected);
         }
 
-        int x = rect.x + app->font.cell_w * (row->depth * 2 + 1);
+        int name_x = rect.x + app->font.cell_w * (tree_row_indent(row) - app->tree_left);
         if (row->is_dir) {
-            font_draw_char(&app->font, x, y, row->expanded ? 'v' : '>', theme->text);
+            font_draw_char(&app->font, name_x - app->font.cell_w * 2, y, row->expanded ? 'v' : '>',
+                           theme->text);
         }
-        font_draw_text(&app->font, x + app->font.cell_w * 2, y, row->name, theme->text);
+        font_draw_text(&app->font, name_x, y, row->name, theme->text);
     }
     SDL_SetRenderClipRect(app->renderer, NULL);
 }
@@ -954,6 +972,9 @@ void app_draw(App *app) {
     SDL_SetRenderDrawColor(app->renderer, background.r, background.g, background.b, 255);
     SDL_RenderClear(app->renderer);
 
+    /* Closing a folder may have removed the row that was the longest. */
+    app->tree_left = SDL_min(app->tree_left, tree_max_left(app));
+
     draw_editor(app);
     draw_tree(app);
     draw_top_bar(app);
@@ -963,11 +984,31 @@ void app_draw(App *app) {
 
 /* ---------- Lifetime ---------- */
 
+void app_set_font_size(App *app, int font_size) {
+    if (font_size == app->font_size) return;
+
+    /* Load first, so that a failure leaves the current font working. */
+    Font next;
+    if (font_load(&next, app->renderer, font_size) != 0) {
+        set_message(app, "Cannot change the text size: %s", SDL_GetError());
+        return;
+    }
+    font_free(&app->font);
+    app->font = next;
+    app->font_size = font_size;
+
+    /* Everything on screen moved, including the rows the menu was opened on. */
+    if (app->mode == MODE_MENU) close_menu(app);
+    Editor *e = current_tab(app);
+    if (e != NULL) editor_keep_cursor_visible(e, editor_rows(app), editor_cols(app));
+}
+
 int app_init(App *app, SDL_Renderer *renderer, int font_size) {
     memset(app, 0, sizeof(*app));
     app->renderer = renderer;
     app->running = 1;
     if (font_load(&app->font, renderer, font_size) != 0) return -1;
+    app->font_size = font_size;
     refresh_tree(app);
     return 0;
 }

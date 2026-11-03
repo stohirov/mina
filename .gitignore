@@ -1,4 +1,5 @@
 /mina
+/Mina.app
 run_tests
 run_app_tests
 build/

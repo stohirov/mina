@@ -5,7 +5,26 @@ on the right.
 
 ## Install
 
-With [Homebrew](https://brew.sh):
+### Mac app
+
+This gives you Mina in Applications, Launchpad and the Dock. It works on Apple
+Silicon and Intel, on macOS 11 or newer:
+
+```sh
+curl -fLO https://github.com/stohirov/mina/releases/latest/download/mina-macos-app.zip
+unzip -q mina-macos-app.zip
+mv Mina.app /Applications/
+```
+
+Mina is not signed by Apple, so if you download the zip with a browser instead,
+macOS refuses to open it at first. Try to open it once, then choose **Open Anyway**
+in System Settings, under Privacy & Security.
+
+The app opens in your home folder, with the full folder tree to explore from there.
+
+### Homebrew
+
+This gives you a `mina` command to use in a terminal, for any folder:
 
 ```sh
 brew install stohirov/tap/mina
@@ -59,6 +78,7 @@ On Linux, install them with your package manager, along with `pkg-config`.
 ```sh
 make            # build ./mina
 make test       # run the tests
+make app        # build Mina.app, on macOS
 make clean      # remove what was built
 ```
 
@@ -80,7 +100,8 @@ Updating the formula needs the `HOMEBREW_TAP_DEPLOY_KEY` secret, which
 ## Using it
 
 Click a file in the tree to open it in a tab, and click a folder to open or close
-it. Right-click a file or folder for this menu. Right-clicking empty space in the
+it. To read a long name, scroll the tree sideways with a trackpad, or hold Shift
+and use the mouse wheel. Right-click a file or folder for this menu. Right-clicking empty space in the
 tree offers the first two, for the top folder.
 
 | Menu item  | Action                                                       |
@@ -130,6 +151,8 @@ do not all fit, scroll over them with the mouse wheel.
 
 ## Limitations
 
+- There is no way to open another folder from inside the app. Use `mina some/dir`
+  from a terminal for that.
 - English only: you can type printable ASCII, and any other character in a file
   or pasted in is shown as `?`. Those bytes are still saved unchanged.
 - There is no redo, cut or search.
