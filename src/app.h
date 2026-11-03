@@ -46,6 +46,7 @@ typedef struct {
 
     Editor editor;
     int has_file;
+    int dragging; /* 1 while the mouse is selecting text. */
 
     Mode mode;
     Action action;

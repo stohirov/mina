@@ -44,13 +44,21 @@ Click empty space in the tree to clear the selection, so new items go in the top
 folder. Questions appear in the status bar at the bottom: type a name and press
 Enter, or answer `y` or `n`. Esc cancels.
 
-| Key                       | Action              |
-| ------------------------- | ------------------- |
-| Cmd-S or Ctrl-S           | Save                |
-| Cmd-Q or Ctrl-Q           | Quit                |
-| Arrows, Home, End         | Move the cursor     |
-| Cmd-Left, Cmd-Right       | Line start, line end |
-| Page Up, Page Down        | Move one screen     |
+Drag with the mouse, or hold Shift while moving the cursor, to select text.
+
+| Key                 | Action               |
+| ------------------- | -------------------- |
+| Cmd-S or Ctrl-S     | Save                 |
+| Cmd-C or Ctrl-C     | Copy the selection   |
+| Cmd-V or Ctrl-V     | Paste                |
+| Cmd-Z or Ctrl-Z     | Undo                 |
+| Cmd-Q or Ctrl-Q     | Quit                 |
+| Arrows, Home, End   | Move the cursor      |
+| Cmd-Left, Cmd-Right | Line start, line end |
+| Page Up, Page Down  | Move one screen      |
+
+Undo goes back up to 1000 steps per open file, and a typed word or a run of
+Backspace counts as one step. The history is lost when you open another file.
 
 ## Code
 
@@ -70,7 +78,7 @@ Enter, or answer `y` or `n`. Esc cancels.
 ## Limitations
 
 - English only: you can type printable ASCII, and any other character in a file
-  is shown as `?`. Those bytes are still saved unchanged.
+  or pasted in is shown as `?`. Those bytes are still saved unchanged.
 - One file is open at a time.
-- There is no selection, copy and paste, undo or search.
+- There is no redo, cut or search.
 - Saving overwrites the file in place, so a crash mid-save can damage it.

@@ -626,6 +626,317 @@ static void test_scrolling(void) {
     end_test();
 }
 
+static void key_shift(SDL_Keycode code) {
+    key_mod(code, SDL_KMOD_SHIFT);
+}
+
+static void mouse_motion(int x, int y) {
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.state = SDL_BUTTON_LMASK;
+    event.motion.x = (float)x;
+    event.motion.y = (float)y;
+    send(&event);
+}
+
+static void mouse_up(void) {
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    event.button.button = SDL_BUTTON_LEFT;
+    send(&event);
+}
+
+/* Pixel position of a text row and screen column, with no scrolling. */
+static int col_x(int col) {
+    return app_editor_rect(&app).x + col * app.font.cell_w + 1;
+}
+
+static int row_y(int row) {
+    return app_editor_rect(&app).y + row * app.font.cell_h + 1;
+}
+
+static int selected_is(const char *expected) {
+    char *selected = editor_selected_text(&app.editor);
+    int same = expected == NULL ? selected == NULL
+                                : (selected != NULL && strcmp(selected, expected) == 0);
+    free(selected);
+    return same;
+}
+
+static int clipboard_is(const char *expected) {
+    char *current = SDL_GetClipboardText();
+    int same = current != NULL && strcmp(current, expected) == 0;
+    SDL_free(current);
+    return same;
+}
+
+static void test_mouse_selection(void) {
+    start_test("drag");
+    CHECK(fs_write_file("d.txt", "first\nsecond\nthird", 18) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("d.txt");
+
+    click(col_x(1), row_y(0));
+    CHECK(selected_is(NULL));
+    mouse_motion(col_x(3), row_y(0));
+    CHECK(selected_is("ir"));
+    mouse_motion(col_x(2), row_y(1));
+    CHECK(selected_is("irst\nse"));
+    mouse_up();
+
+    /* Moving after release changes nothing. */
+    mouse_motion(col_x(5), row_y(2));
+    CHECK(selected_is("irst\nse"));
+
+    /* A plain click clears the selection. */
+    click(col_x(0), row_y(2));
+    mouse_up();
+    CHECK(selected_is(NULL));
+
+    /* Shift-click extends from the cursor. */
+    SDL_SetModState(SDL_KMOD_SHIFT);
+    click(col_x(3), row_y(2));
+    SDL_SetModState(SDL_KMOD_NONE);
+    mouse_up();
+    CHECK(selected_is("thi"));
+
+    /* A drag that started outside the text selects nothing. */
+    click(col_x(0), row_y(0));
+    mouse_up();
+    click_tree_empty();
+    mouse_motion(col_x(4), row_y(1));
+    CHECK(selected_is(NULL));
+    mouse_up();
+
+    /* A missed button release does not leave the drag stuck. */
+    click(col_x(0), row_y(0));
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = (float)col_x(4);
+    event.motion.y = (float)row_y(0);
+    send(&event);
+    CHECK(app.dragging == 0);
+    CHECK(selected_is(NULL));
+    end_test();
+
+    /* Dragging past the edges of the text area scrolls. */
+    start_test("dragscroll");
+    char big[2000] = "";
+    for (int i = 0; i < 100; i++) strcat(big, "row\n");
+    CHECK(fs_write_file("b.txt", big, strlen(big)) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("b.txt");
+    SDL_Rect e = app_editor_rect(&app);
+
+    click(col_x(0), row_y(0));
+    for (int i = 0; i < 10; i++) mouse_motion(col_x(0), e.y + e.h + 5);
+    CHECK(app.editor.top > 0);
+    CHECK(app.editor.selecting);
+    int top = app.editor.top;
+    for (int i = 0; i < 3; i++) mouse_motion(col_x(0), e.y - 5);
+    CHECK(app.editor.top < top);
+    CHECK(app.editor.row == app.editor.top);
+    mouse_up();
+    end_test();
+}
+
+static void test_copy_and_paste(void) {
+    start_test("clipboard");
+    CHECK(fs_write_file("c.txt", "hello world\nsecond", 18) == 0);
+    CHECK(fs_write_file("other.txt", "", 0) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+
+    /* With no file open these do nothing. */
+    SDL_SetClipboardText("unchanged");
+    key_mod(SDLK_C, SDL_KMOD_GUI);
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(!app.has_file);
+    CHECK(clipboard_is("unchanged"));
+
+    click_row("c.txt");
+
+    /* Copy with nothing selected keeps the clipboard and says why. */
+    key_mod(SDLK_C, SDL_KMOD_GUI);
+    CHECK(strstr(app.message, "Select some text") != NULL);
+    CHECK(clipboard_is("unchanged"));
+
+    /* Shift+arrows select, and copying does not change the file. */
+    for (int i = 0; i < 5; i++) key_shift(SDLK_RIGHT);
+    CHECK(selected_is("hello"));
+    key_mod(SDLK_C, SDL_KMOD_GUI);
+    CHECK(clipboard_is("hello"));
+    CHECK(strstr(app.message, "Copied") != NULL);
+    CHECK(app.editor.buffer.dirty == 0);
+    CHECK(selected_is("hello"));
+
+    /* Ctrl works as well as Cmd. */
+    key(SDLK_END);
+    key_mod(SDLK_V, SDL_KMOD_CTRL);
+    click_button(BUTTON_SAVE);
+    CHECK(file_is("c.txt", "hello worldhello\nsecond"));
+    CHECK(app.editor.col == 16);
+
+    /* Pasting over a selection replaces it, and can span lines. */
+    SDL_SetClipboardText("one\ntwo");
+    key(SDLK_HOME);
+    key_shift(SDLK_DOWN);
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    click_button(BUTTON_SAVE);
+    CHECK(file_is("c.txt", "one\ntwosecond"));
+    CHECK(app.editor.row == 1 && app.editor.col == 3);
+
+    /* Copy across lines. */
+    key_mod(SDLK_RIGHT, SDL_KMOD_GUI);
+    key_shift(SDLK_UP);
+    key_mod(SDLK_LEFT, SDL_KMOD_GUI | SDL_KMOD_SHIFT);
+    CHECK(selected_is("one\ntwosecond"));
+    key_mod(SDLK_C, SDL_KMOD_GUI);
+    CHECK(clipboard_is("one\ntwosecond"));
+
+    /* A paste of many lines scrolls the cursor into view. */
+    char lines[1000] = "";
+    for (int i = 0; i < 100; i++) strcat(lines, "line\n");
+    SDL_SetClipboardText(lines);
+    key(SDLK_END);
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    CHECK(app.editor.top > 0);
+    int rows = app_editor_rect(&app).h / app.font.cell_h;
+    CHECK(app.editor.row < app.editor.top + rows);
+
+    /* One Cmd-Z removes the whole paste. */
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(app.editor.buffer.count == 2);
+    CHECK(app.editor.buffer.dirty == 0);
+
+    /* Non-English text pasted in keeps its bytes, like the rest of a file. */
+    SDL_SetClipboardText("\xc3\xa9");
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    click_button(BUTTON_SAVE);
+    CHECK(strstr(app.editor.buffer.lines[0].text, "\xc3\xa9") != NULL);
+
+    /* The clipboard outlives the file it was copied from. */
+    SDL_SetClipboardText("across");
+    click_row("other.txt");
+    CHECK(strcmp(app.editor.path, "other.txt") == 0);
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    click_button(BUTTON_SAVE);
+    CHECK(file_is("other.txt", "across"));
+    end_test();
+}
+
+static void test_undo(void) {
+    start_test("undo");
+    CHECK(fs_write_file("u.txt", "base", 4) == 0);
+    CHECK(fs_write_file("other.txt", "other", 5) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("u.txt");
+
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(strstr(app.message, "Nothing to undo") != NULL);
+
+    text("a");
+    text("b");
+    key(SDLK_RETURN);
+    text("c");
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    click_button(BUTTON_SAVE);
+    CHECK(file_is("u.txt", "abbase"));
+    key_mod(SDLK_Z, SDL_KMOD_CTRL);
+    CHECK(app.editor.buffer.dirty == 1);
+    CHECK(app.editor.col == 0);
+
+    /* Back at the saved text, switching files asks nothing. */
+    text("x");
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    key(SDLK_END);
+    text("y");
+    click_button(BUTTON_SAVE);
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    click_button(BUTTON_SAVE);
+    CHECK(file_is("u.txt", "base"));
+    text("z");
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(app.editor.buffer.dirty == 0);
+    click_row("other.txt");
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(strcmp(app.editor.path, "other.txt") == 0);
+
+    /* Each file has its own history. */
+    key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(strstr(app.message, "Nothing to undo") != NULL);
+
+    /* Undo scrolls back to the change. */
+    for (int i = 0; i < 100; i++) key(SDLK_RETURN);
+    CHECK(app.editor.top > 0);
+    for (int i = 0; i < 100; i++) key_mod(SDLK_Z, SDL_KMOD_GUI);
+    CHECK(app.editor.top == 0);
+    CHECK(app.editor.buffer.dirty == 0);
+
+    /* Cmd-Shift-Z is not undo. */
+    text("k");
+    key_mod(SDLK_Z, SDL_KMOD_GUI | SDL_KMOD_SHIFT);
+    CHECK(app.editor.buffer.dirty == 1);
+    end_test();
+}
+
+static void test_selection_is_drawn(void) {
+    start_test("highlight");
+    CHECK(fs_write_file("s.txt", "abc\n\ndef", 8) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    click_row("s.txt");
+
+    SDL_Rect e = app_editor_rect(&app);
+    int w = app.font.cell_w, h = app.font.cell_h;
+    Color selected = theme_current()->selected;
+    Color background = theme_current()->background;
+
+    /* Top-left corner of a text cell: the background shows there, not ink. */
+#define CELL(col, row) pixel_is(e.x + (col) * w, e.y + (row) * h, selected)
+
+    CHECK(!CELL(1, 0));
+
+    click(col_x(1), row_y(0));
+    mouse_motion(col_x(1), row_y(2));
+    mouse_up();
+    CHECK(!CELL(0, 0));  /* Before the start. */
+    CHECK(CELL(2, 0));   /* Inside the first line. */
+    CHECK(CELL(3, 0));   /* The first line's line break. */
+    CHECK(!CELL(4, 0));
+    CHECK(CELL(0, 1));   /* The empty line's line break. */
+    CHECK(!CELL(1, 1));
+    CHECK(CELL(0, 2));   /* Last line, before the end. */
+    CHECK(!CELL(2, 2));  /* After the end. */
+
+    /* The highlight stays out of the tree when scrolled sideways. */
+    click_row("s.txt");
+    char line[400] = "";
+    memset(line, 'x', 300);
+    click(col_x(0), row_y(0));
+    SDL_SetClipboardText(line);
+    key_mod(SDLK_V, SDL_KMOD_GUI);
+    CHECK(app.editor.left > 0);
+    key_mod(SDLK_LEFT, SDL_KMOD_GUI | SDL_KMOD_SHIFT);
+    CHECK(app.editor.left == 0);
+    key_shift(SDLK_END);
+    CHECK(app.editor.left > 0);
+    click_tree_empty(); /* The tree's own highlight would hide a leak. */
+    CHECK(selected_is("abc"));
+    SDL_Rect t = app_tree_rect(&app);
+    CHECK(pixel_is(t.x + t.w - 2, t.y + h / 2, theme_current()->sidebar));
+
+    /* Clearing the selection removes the highlight. */
+    click(col_x(0), row_y(1));
+    mouse_up();
+    CHECK(pixel_is(e.x + 1, e.y + 2 * h + 1, background));
+#undef CELL
+    end_test();
+}
+
 static void test_themes_and_drawing(void) {
     start_test("draw");
     SDL_Rect e = app_editor_rect(&app);
@@ -660,6 +971,13 @@ int main(void) {
     char folder[1024];
     enter_temp_folder(folder, sizeof(folder));
 
+    /* The dummy driver has its own clipboard, so tests leave the real one alone. */
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    if (!SDL_Init(SDL_INIT_VIDEO) || strcmp(SDL_GetCurrentVideoDriver(), "dummy") != 0) {
+        printf("could not start the dummy video driver: %s\n", SDL_GetError());
+        return 1;
+    }
+
     surface = SDL_CreateSurface(1000, 700, SDL_PIXELFORMAT_RGBA32);
     SDL_Renderer *renderer = surface != NULL ? SDL_CreateSoftwareRenderer(surface) : NULL;
     if (renderer == NULL || app_init(&app, renderer, 14) != 0) {
@@ -677,10 +995,15 @@ int main(void) {
     test_non_english_input_and_exact_saves();
     test_mouse_in_editor();
     test_scrolling();
+    test_mouse_selection();
+    test_copy_and_paste();
+    test_undo();
+    test_selection_is_drawn();
     test_themes_and_drawing();
 
     app_free(&app);
     SDL_DestroyRenderer(renderer);
     SDL_DestroySurface(surface);
+    SDL_Quit();
     return finish(folder);
 }

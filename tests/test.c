@@ -57,46 +57,89 @@ static void test_buffer_keeps_nul_bytes(void) {
     buffer_free(&b);
 }
 
-static void test_buffer_insert_and_delete(void) {
+static Pos pos(int row, int col) {
+    return (Pos){row, col};
+}
+
+/* Insert into "hello\nworld", check the result and the returned end position. */
+static void check_insert(Pos at, const char *text, const char *expected, Pos end) {
     Buffer b;
-    buffer_init(&b, "ac", 2);
-
-    buffer_insert_char(&b, 0, 1, 'b');
-    CHECK(buffer_is(&b, "abc"));
+    buffer_init(&b, "hello\nworld", 11);
+    Pos got = buffer_insert_text(&b, at, text, strlen(text));
+    CHECK(buffer_is(&b, expected));
+    CHECK(got.row == end.row && got.col == end.col);
     CHECK(b.dirty == 1);
-    buffer_insert_char(&b, 0, 0, '<');
-    buffer_insert_char(&b, 0, 4, '>');
-    CHECK(buffer_is(&b, "<abc>"));
-    CHECK(b.lines[0].len == 5);
-
-    buffer_delete_char(&b, 0, 4);
-    buffer_delete_char(&b, 0, 0);
-    buffer_delete_char(&b, 0, 1);
-    CHECK(buffer_is(&b, "ac"));
-    CHECK(b.lines[0].len == 2);
+    for (int i = 0; i < b.count; i++) {
+        CHECK((int)strlen(b.lines[i].text) == b.lines[i].len);
+    }
     buffer_free(&b);
 }
 
-static void test_buffer_split_and_join(void) {
+static void test_buffer_insert(void) {
+    check_insert(pos(0, 0), "X", "Xhello\nworld", pos(0, 1));
+    check_insert(pos(0, 2), "X", "heXllo\nworld", pos(0, 3));
+    check_insert(pos(1, 5), "X", "hello\nworldX", pos(1, 6));
+    check_insert(pos(0, 2), "\n", "he\nllo\nworld", pos(1, 0));
+    check_insert(pos(1, 5), "\n", "hello\nworld\n", pos(2, 0));
+    check_insert(pos(0, 2), "a\nb", "hea\nbllo\nworld", pos(1, 1));
+    check_insert(pos(0, 2), "a\nb\nc\n", "hea\nb\nc\nllo\nworld", pos(3, 0));
+    check_insert(pos(1, 0), "\n\n", "hello\n\n\nworld", pos(3, 0));
+}
+
+static void check_delete(Pos start, Pos end, const char *removed, const char *expected) {
     Buffer b;
-    buffer_init(&b, "hello\nworld", 11);
+    buffer_init(&b, "one\ntwo\nthree\nfour", 18);
+    size_t len;
+    char *text = buffer_text_range(&b, start, end, &len);
+    CHECK(strcmp(text, removed) == 0);
+    CHECK(len == strlen(removed));
+    free(text);
 
-    buffer_split_line(&b, 0, 2);
-    CHECK(b.count == 3);
-    CHECK(buffer_is(&b, "he\nllo\nworld"));
+    buffer_delete_range(&b, start, end);
+    CHECK(buffer_is(&b, expected));
     CHECK(b.dirty == 1);
-
-    buffer_split_line(&b, 2, 5);
-    CHECK(b.count == 4);
-    CHECK(buffer_is(&b, "he\nllo\nworld\n"));
-
-    buffer_join_with_next(&b, 2);
-    CHECK(buffer_is(&b, "he\nllo\nworld"));
-    buffer_join_with_next(&b, 0);
-    CHECK(b.count == 2);
-    CHECK(buffer_is(&b, "hello\nworld"));
-    CHECK(b.lines[0].len == 5);
+    for (int i = 0; i < b.count; i++) {
+        CHECK((int)strlen(b.lines[i].text) == b.lines[i].len);
+    }
     buffer_free(&b);
+}
+
+static void test_buffer_ranges(void) {
+    check_delete(pos(0, 1), pos(0, 2), "n", "oe\ntwo\nthree\nfour");
+    check_delete(pos(0, 0), pos(0, 3), "one", "\ntwo\nthree\nfour");
+    check_delete(pos(0, 3), pos(1, 0), "\n", "onetwo\nthree\nfour");
+    check_delete(pos(0, 1), pos(1, 1), "ne\nt", "owo\nthree\nfour");
+    check_delete(pos(0, 2), pos(2, 3), "e\ntwo\nthr", "onee\nfour");
+    check_delete(pos(0, 0), pos(3, 4), "one\ntwo\nthree\nfour", "");
+    check_delete(pos(2, 5), pos(3, 4), "\nfour", "one\ntwo\nthree");
+}
+
+/* Inserting back what was removed gives the original, for every possible range. */
+static void test_buffer_delete_then_insert_restores(void) {
+    const char *original = "ab\n\ncd\ne";
+    Buffer b;
+    buffer_init(&b, original, strlen(original));
+    int count = b.count;
+    int lens[] = {2, 0, 2, 1};
+    buffer_free(&b);
+
+    for (int r1 = 0; r1 < count; r1++) {
+        for (int c1 = 0; c1 <= lens[r1]; c1++) {
+            for (int r2 = r1; r2 < count; r2++) {
+                for (int c2 = r2 == r1 ? c1 : 0; c2 <= lens[r2]; c2++) {
+                    buffer_init(&b, original, strlen(original));
+                    size_t len;
+                    char *removed = buffer_text_range(&b, pos(r1, c1), pos(r2, c2), &len);
+                    buffer_delete_range(&b, pos(r1, c1), pos(r2, c2));
+                    Pos end = buffer_insert_text(&b, pos(r1, c1), removed, len);
+                    CHECK(end.row == r2 && end.col == c2);
+                    CHECK(buffer_is(&b, original));
+                    free(removed);
+                    buffer_free(&b);
+                }
+            }
+        }
+    }
 }
 
 static void test_create(void) {
@@ -315,10 +358,10 @@ static void test_editor_editing(void) {
     editor_backspace(&e); /* At the very start: nothing to do. */
     CHECK(buffer_is(&e.buffer, "ab\ncd"));
 
-    editor_move(&e, MOVE_LINE_END, 10);
+    editor_move(&e, MOVE_LINE_END, 10, 0);
     editor_delete_forward(&e); /* Joins with the line below. */
     CHECK(buffer_is(&e.buffer, "abcd"));
-    editor_move(&e, MOVE_LINE_END, 10);
+    editor_move(&e, MOVE_LINE_END, 10, 0);
     editor_delete_forward(&e); /* At the very end: nothing to do. */
     CHECK(buffer_is(&e.buffer, "abcd"));
 
@@ -340,39 +383,306 @@ static void test_editor_cursor(void) {
     Editor e;
     CHECK(editor_open(&e, "c.txt") == 0);
 
-    editor_move(&e, MOVE_LEFT, 10); /* At the start of the file: stays. */
+    editor_move(&e, MOVE_LEFT, 10, 0); /* At the start of the file: stays. */
     CHECK(e.row == 0 && e.col == 0);
 
-    editor_move(&e, MOVE_LINE_END, 10);
+    editor_move(&e, MOVE_LINE_END, 10, 0);
     CHECK(e.col == 9);
-    editor_move(&e, MOVE_DOWN, 10); /* Shorter line: the column is clamped. */
+    editor_move(&e, MOVE_DOWN, 10, 0); /* Shorter line: the column is clamped. */
     CHECK(e.row == 1 && e.col == 1);
-    editor_move(&e, MOVE_RIGHT, 10); /* Wraps to the next line. */
+    editor_move(&e, MOVE_RIGHT, 10, 0); /* Wraps to the next line. */
     CHECK(e.row == 2 && e.col == 0);
-    editor_move(&e, MOVE_LEFT, 10); /* Wraps back. */
+    editor_move(&e, MOVE_LEFT, 10, 0); /* Wraps back. */
     CHECK(e.row == 1 && e.col == 1);
 
-    editor_move(&e, MOVE_PAGE_DOWN, 100);
+    editor_move(&e, MOVE_PAGE_DOWN, 100, 0);
     CHECK(e.row == 2);
-    editor_move(&e, MOVE_PAGE_UP, 100);
+    editor_move(&e, MOVE_PAGE_UP, 100, 0);
     CHECK(e.row == 0);
 
     /* Tabs take up to TAB_WIDTH screen columns. */
     CHECK(editor_screen_col(&e, 2, 1) == TAB_WIDTH);
     CHECK(editor_screen_col(&e, 2, 2) == TAB_WIDTH + 1);
 
-    editor_click(&e, 2, 0);
+    editor_click(&e, 2, 0, 0);
     CHECK(e.row == 2 && e.col == 0);
-    editor_click(&e, 2, TAB_WIDTH - 1); /* Inside the tab. */
+    editor_click(&e, 2, TAB_WIDTH - 1, 0); /* Inside the tab. */
     CHECK(e.col == 0);
-    editor_click(&e, 2, TAB_WIDTH);
+    editor_click(&e, 2, TAB_WIDTH, 0);
     CHECK(e.col == 1);
-    editor_click(&e, 2, 100); /* Past the end of the line. */
+    editor_click(&e, 2, 100, 0); /* Past the end of the line. */
     CHECK(e.col == 3);
-    editor_click(&e, 100, 0); /* Past the end of the file. */
+    editor_click(&e, 100, 0, 0); /* Past the end of the file. */
     CHECK(e.row == 2 && e.col == 0);
-    editor_click(&e, -5, 0);
+    editor_click(&e, -5, 0, 0);
     CHECK(e.row == 0);
+    editor_close(&e);
+}
+
+static int selected_is(const Editor *e, const char *expected) {
+    char *text = editor_selected_text(e);
+    int same = expected == NULL ? text == NULL : (text != NULL && strcmp(text, expected) == 0);
+    free(text);
+    return same;
+}
+
+static void open_with(Editor *e, const char *text) {
+    CHECK(fs_write_file("sel.txt", text, strlen(text)) == 0);
+    CHECK(editor_open(e, "sel.txt") == 0);
+}
+
+static void test_editor_selection(void) {
+    Editor e;
+    open_with(&e, "hello\nworld\nthird");
+    CHECK(selected_is(&e, NULL));
+
+    /* Forwards and backwards from the anchor give the same ordered text. */
+    editor_move(&e, MOVE_RIGHT, 10, 0);
+    editor_move(&e, MOVE_RIGHT, 10, 1);
+    editor_move(&e, MOVE_RIGHT, 10, 1);
+    CHECK(selected_is(&e, "el"));
+    editor_move(&e, MOVE_LEFT, 10, 1);
+    editor_move(&e, MOVE_LEFT, 10, 1);
+    CHECK(selected_is(&e, NULL)); /* Back at the anchor: nothing is selected. */
+    editor_move(&e, MOVE_LEFT, 10, 1);
+    CHECK(selected_is(&e, "h"));
+
+    /* Across lines. */
+    editor_move(&e, MOVE_RIGHT, 10, 0); /* Collapses to the end of the selection. */
+    CHECK(e.row == 0 && e.col == 1);
+    CHECK(selected_is(&e, NULL));
+    editor_move(&e, MOVE_DOWN, 10, 1);
+    CHECK(selected_is(&e, "ello\nw"));
+
+    /* Left collapses to the start, and other moves just clear it. */
+    editor_move(&e, MOVE_LEFT, 10, 0);
+    CHECK(e.row == 0 && e.col == 1);
+    editor_move(&e, MOVE_DOWN, 10, 1);
+    editor_move(&e, MOVE_DOWN, 10, 0);
+    CHECK(e.row == 2 && e.col == 1);
+    CHECK(selected_is(&e, NULL));
+
+    /* Mouse-style selection. */
+    editor_click(&e, 0, 0, 0);
+    editor_click(&e, 1, 3, 1);
+    CHECK(selected_is(&e, "hello\nwor"));
+    editor_click(&e, 0, 2, 1); /* Dragging back past the anchor. */
+    CHECK(selected_is(&e, "he"));
+    editor_click(&e, 2, 0, 0);
+    CHECK(selected_is(&e, NULL));
+    editor_close(&e);
+
+    /* Editing replaces the selection. */
+    open_with(&e, "hello\nworld");
+    editor_click(&e, 0, 1, 0);
+    editor_click(&e, 1, 2, 1);
+    editor_insert_char(&e, 'X');
+    CHECK(buffer_is(&e.buffer, "hXrld"));
+    CHECK(e.row == 0 && e.col == 2);
+    CHECK(selected_is(&e, NULL));
+
+    editor_click(&e, 0, 1, 0);
+    editor_click(&e, 0, 3, 1);
+    editor_backspace(&e);
+    CHECK(buffer_is(&e.buffer, "hld"));
+    CHECK(e.col == 1);
+
+    editor_click(&e, 0, 0, 0);
+    editor_click(&e, 0, 2, 1);
+    editor_delete_forward(&e);
+    CHECK(buffer_is(&e.buffer, "d"));
+
+    editor_click(&e, 0, 0, 0);
+    editor_click(&e, 0, 1, 1);
+    editor_insert_newline(&e);
+    CHECK(buffer_is(&e.buffer, "\n"));
+    CHECK(e.row == 1 && e.col == 0);
+    editor_close(&e);
+}
+
+static void test_editor_paste(void) {
+    Editor e;
+    open_with(&e, "ab");
+    editor_click(&e, 0, 1, 0);
+    editor_insert_text(&e, "1\n2\n3", 5);
+    CHECK(buffer_is(&e.buffer, "a1\n2\n3b"));
+    CHECK(e.row == 2 && e.col == 1);
+
+    editor_click(&e, 0, 0, 0);
+    editor_click(&e, 2, 1, 1);
+    editor_insert_text(&e, "Z", 1); /* Replaces the selection. */
+    CHECK(buffer_is(&e.buffer, "Zb"));
+
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "a1\n2\n3b"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ab"));
+    CHECK(e.row == 0 && e.col == 1);
+
+    size_t before = (size_t)e.undo_count;
+    editor_insert_text(&e, "", 0); /* Empty clipboard: not an edit. */
+    CHECK((size_t)e.undo_count == before);
+    CHECK(e.buffer.dirty == 0);
+    editor_close(&e);
+}
+
+static void type_text(Editor *e, const char *text) {
+    for (const char *p = text; *p != '\0'; p++) editor_insert_char(e, *p);
+}
+
+static void test_editor_undo(void) {
+    Editor e;
+    open_with(&e, "start");
+    CHECK(editor_undo(&e) == 0); /* Nothing to undo yet. */
+
+    /* A word typed in one go is one step, and a space begins the next. */
+    type_text(&e, "one two");
+    CHECK(buffer_is(&e.buffer, "one twostart"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "onestart"));
+    CHECK(e.col == 3);
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+    CHECK(e.col == 0);
+    CHECK(editor_undo(&e) == 0);
+
+    /* Moving the cursor ends a step, even when typing resumes in the same place. */
+    type_text(&e, "ab");
+    editor_move(&e, MOVE_LEFT, 10, 0);
+    editor_move(&e, MOVE_RIGHT, 10, 0);
+    type_text(&e, "cd");
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "abstart"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+
+    /* Runs of Backspace and of Delete are one step each. */
+    editor_click(&e, 0, 4, 0);
+    editor_backspace(&e);
+    editor_backspace(&e);
+    CHECK(buffer_is(&e.buffer, "stt"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+    CHECK(e.col == 4);
+
+    editor_click(&e, 0, 1, 0);
+    editor_delete_forward(&e);
+    editor_delete_forward(&e);
+    CHECK(buffer_is(&e.buffer, "srt"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+    CHECK(e.col == 1);
+
+    /* Different kinds of edit are separate steps. */
+    type_text(&e, "x");
+    editor_backspace(&e);
+    editor_delete_forward(&e);
+    CHECK(buffer_is(&e.buffer, "sart"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "sxtart"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "start"));
+    editor_close(&e);
+
+    /* Line breaks, and Backspace and Delete across them. */
+    open_with(&e, "ab\ncd");
+    editor_click(&e, 0, 1, 0);
+    editor_insert_newline(&e);
+    CHECK(buffer_is(&e.buffer, "a\nb\ncd"));
+    type_text(&e, "x");
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "a\nb\ncd"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ab\ncd"));
+    CHECK(e.row == 0 && e.col == 1);
+
+    editor_click(&e, 1, 0, 0);
+    editor_backspace(&e);
+    editor_backspace(&e);
+    CHECK(buffer_is(&e.buffer, "acd"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ab\ncd"));
+    CHECK(e.row == 1 && e.col == 0);
+
+    editor_click(&e, 0, 2, 0);
+    editor_delete_forward(&e);
+    editor_delete_forward(&e);
+    CHECK(buffer_is(&e.buffer, "abd"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ab\ncd"));
+    CHECK(e.row == 0 && e.col == 2);
+
+    /* Text replaced by typing comes back, along with what was typed after it. */
+    editor_click(&e, 0, 0, 0);
+    editor_click(&e, 1, 1, 1);
+    type_text(&e, "xyz");
+    CHECK(buffer_is(&e.buffer, "xyzd"));
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ab\ncd"));
+    CHECK(selected_is(&e, NULL));
+
+    /* Edits that change nothing leave no step. */
+    int steps = e.undo_count;
+    editor_click(&e, 0, 0, 0);
+    editor_backspace(&e);
+    editor_click(&e, 1, 100, 0);
+    editor_delete_forward(&e);
+    CHECK(e.undo_count == steps);
+    editor_close(&e);
+}
+
+static void test_editor_undo_and_dirty(void) {
+    Editor e;
+    open_with(&e, "x");
+
+    /* Undoing back to the saved text means there is nothing left to save. */
+    type_text(&e, "a");
+    CHECK(e.buffer.dirty == 1);
+    CHECK(editor_undo(&e) == 1);
+    CHECK(e.buffer.dirty == 0);
+
+    /* The same holds for a later save. */
+    type_text(&e, "a");
+    CHECK(editor_save(&e) == 0);
+    CHECK(e.buffer.dirty == 0);
+    type_text(&e, "b"); /* Must not merge with the step already saved. */
+    CHECK(e.buffer.dirty == 1);
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "ax"));
+    CHECK(e.buffer.dirty == 0);
+
+    /* Undoing past the save differs from the file again. */
+    CHECK(editor_undo(&e) == 1);
+    CHECK(buffer_is(&e.buffer, "x"));
+    CHECK(e.buffer.dirty == 1);
+    CHECK(file_is("sel.txt", "ax"));
+
+    /* A different edit at the same depth must not look saved. */
+    type_text(&e, "z");
+    CHECK(buffer_is(&e.buffer, "zx"));
+    CHECK(e.buffer.dirty == 1);
+    CHECK(editor_undo(&e) == 1);
+    CHECK(e.buffer.dirty == 1);
+    editor_close(&e);
+}
+
+static void test_editor_undo_limit(void) {
+    Editor e;
+    open_with(&e, "");
+
+    /* Each newline is its own step. */
+    for (int i = 0; i < 1100; i++) editor_insert_newline(&e);
+    CHECK(e.undo_count == 1000);
+
+    int undone = 0;
+    while (editor_undo(&e)) undone++;
+    CHECK(undone == 1000);
+    CHECK(e.buffer.count == 101);
+
+    /* The original text is out of reach, so the buffer stays dirty. */
+    CHECK(e.buffer.dirty == 1);
     editor_close(&e);
 }
 
@@ -383,16 +693,16 @@ static void test_editor_scrolling(void) {
 
     Editor e;
     CHECK(editor_open(&e, "s.txt") == 0);
-    editor_click(&e, 15, 0);
+    editor_click(&e, 15, 0, 0);
     editor_keep_cursor_visible(&e, 5, 10);
     CHECK(e.top == 11);
-    editor_click(&e, 2, 0);
+    editor_click(&e, 2, 0, 0);
     editor_keep_cursor_visible(&e, 5, 10);
     CHECK(e.top == 2);
-    editor_click(&e, 2, 12);
+    editor_click(&e, 2, 12, 0);
     editor_keep_cursor_visible(&e, 5, 10);
     CHECK(e.left == 3);
-    editor_click(&e, 2, 0);
+    editor_click(&e, 2, 0, 0);
     editor_keep_cursor_visible(&e, 5, 10);
     CHECK(e.left == 0);
     editor_close(&e);
@@ -405,8 +715,9 @@ int main(void) {
     test_buffer_round_trip();
     test_buffer_splits_lines();
     test_buffer_keeps_nul_bytes();
-    test_buffer_insert_and_delete();
-    test_buffer_split_and_join();
+    test_buffer_insert();
+    test_buffer_ranges();
+    test_buffer_delete_then_insert_restores();
     test_create();
     test_read_and_write();
     test_rename();
@@ -417,6 +728,11 @@ int main(void) {
     test_tree();
     test_editor_editing();
     test_editor_cursor();
+    test_editor_selection();
+    test_editor_paste();
+    test_editor_undo();
+    test_editor_undo_and_dirty();
+    test_editor_undo_limit();
     test_editor_scrolling();
 
     return finish(folder);

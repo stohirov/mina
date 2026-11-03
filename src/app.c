@@ -316,8 +316,37 @@ static void press_button(App *app, Button button) {
 
 /* ---------- Input ---------- */
 
+static void copy_selection(App *app) {
+    char *text = editor_selected_text(&app->editor);
+    if (text == NULL) {
+        set_message(app, "Select some text first");
+        return;
+    }
+    if (!SDL_SetClipboardText(text)) {
+        set_message(app, "Cannot copy: %s", SDL_GetError());
+    } else {
+        set_message(app, "Copied");
+    }
+    free(text);
+}
+
+static void paste(App *app) {
+    char *text = SDL_GetClipboardText();
+    if (text == NULL) {
+        set_message(app, "Cannot paste: %s", SDL_GetError());
+        return;
+    }
+    editor_insert_text(&app->editor, text, strlen(text));
+    SDL_free(text);
+}
+
+static void undo(App *app) {
+    if (!editor_undo(&app->editor)) set_message(app, "Nothing to undo");
+}
+
 static void on_edit_key(App *app, const SDL_KeyboardEvent *key) {
     int command = (key->mod & (SDL_KMOD_GUI | SDL_KMOD_CTRL)) != 0;
+    int shift = (key->mod & SDL_KMOD_SHIFT) != 0;
 
     if (command && key->key == SDLK_Q) {
         request_quit(app);
@@ -328,23 +357,34 @@ static void on_edit_key(App *app, const SDL_KeyboardEvent *key) {
         save_file(app);
         return;
     }
+    if (command && key->key == SDLK_C) {
+        copy_selection(app);
+        return;
+    }
 
     Editor *e = &app->editor;
     int page = editor_rows(app);
-    switch (key->key) {
-        case SDLK_RETURN: case SDLK_KP_ENTER: editor_insert_newline(e); break;
-        case SDLK_BACKSPACE: editor_backspace(e); break;
-        case SDLK_DELETE: editor_delete_forward(e); break;
-        case SDLK_TAB: editor_insert_char(e, '\t'); break;
-        case SDLK_LEFT: editor_move(e, command ? MOVE_LINE_START : MOVE_LEFT, page); break;
-        case SDLK_RIGHT: editor_move(e, command ? MOVE_LINE_END : MOVE_RIGHT, page); break;
-        case SDLK_UP: editor_move(e, MOVE_UP, page); break;
-        case SDLK_DOWN: editor_move(e, MOVE_DOWN, page); break;
-        case SDLK_HOME: editor_move(e, MOVE_LINE_START, page); break;
-        case SDLK_END: editor_move(e, MOVE_LINE_END, page); break;
-        case SDLK_PAGEUP: editor_move(e, MOVE_PAGE_UP, page); break;
-        case SDLK_PAGEDOWN: editor_move(e, MOVE_PAGE_DOWN, page); break;
-        default: return;
+    if (command && key->key == SDLK_V) {
+        paste(app);
+    } else if (command && key->key == SDLK_Z) {
+        if (shift) return;
+        undo(app);
+    } else {
+        switch (key->key) {
+            case SDLK_RETURN: case SDLK_KP_ENTER: editor_insert_newline(e); break;
+            case SDLK_BACKSPACE: editor_backspace(e); break;
+            case SDLK_DELETE: editor_delete_forward(e); break;
+            case SDLK_TAB: editor_insert_char(e, '\t'); break;
+            case SDLK_LEFT: editor_move(e, command ? MOVE_LINE_START : MOVE_LEFT, page, shift); break;
+            case SDLK_RIGHT: editor_move(e, command ? MOVE_LINE_END : MOVE_RIGHT, page, shift); break;
+            case SDLK_UP: editor_move(e, MOVE_UP, page, shift); break;
+            case SDLK_DOWN: editor_move(e, MOVE_DOWN, page, shift); break;
+            case SDLK_HOME: editor_move(e, MOVE_LINE_START, page, shift); break;
+            case SDLK_END: editor_move(e, MOVE_LINE_END, page, shift); break;
+            case SDLK_PAGEUP: editor_move(e, MOVE_PAGE_UP, page, shift); break;
+            case SDLK_PAGEDOWN: editor_move(e, MOVE_PAGE_DOWN, page, shift); break;
+            default: return;
+        }
     }
     editor_keep_cursor_visible(e, page, editor_cols(app));
 }
@@ -443,6 +483,16 @@ static void on_tree_click(App *app, int y) {
     }
 }
 
+/* Put the cursor under the mouse. Above the text area means the row above the
+ * first visible one, so that dragging upwards can scroll. */
+static void place_cursor(App *app, int x, int y, int extend) {
+    SDL_Rect text = app_editor_rect(app);
+    Editor *e = &app->editor;
+    int row = y < text.y ? e->top - 1 : e->top + (y - text.y) / app->font.cell_h;
+    int col = x < text.x ? e->left - 1 : e->left + (x - text.x) / app->font.cell_w;
+    editor_click(e, row, col, extend);
+}
+
 static void on_click(App *app, int x, int y) {
     /* A question is waiting: only y, n or Esc may answer it. */
     if (app->mode != MODE_EDIT) return;
@@ -463,10 +513,20 @@ static void on_click(App *app, int x, int y) {
 
     SDL_Rect text = app_editor_rect(app);
     if (app->has_file && point_in(&text, x, y)) {
-        Editor *e = &app->editor;
-        editor_click(e, e->top + (y - text.y) / app->font.cell_h,
-                     e->left + (x - text.x) / app->font.cell_w);
+        int shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
+        place_cursor(app, x, y, shift);
+        app->dragging = 1;
     }
+}
+
+static void on_mouse_motion(App *app, const SDL_MouseMotionEvent *motion) {
+    if (!app->dragging) return;
+    if ((motion->state & SDL_BUTTON_LMASK) == 0) {
+        app->dragging = 0;
+        return;
+    }
+    place_cursor(app, (int)motion->x, (int)motion->y, 1);
+    editor_keep_cursor_visible(&app->editor, editor_rows(app), editor_cols(app));
 }
 
 static void on_wheel(App *app, const SDL_MouseWheelEvent *wheel) {
@@ -503,6 +563,12 @@ void app_handle_event(App *app, const SDL_Event *event) {
             if (event->button.button == SDL_BUTTON_LEFT) {
                 on_click(app, (int)event->button.x, (int)event->button.y);
             }
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (event->button.button == SDL_BUTTON_LEFT) app->dragging = 0;
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            on_mouse_motion(app, &event->motion);
             break;
         case SDL_EVENT_MOUSE_WHEEL:
             on_wheel(app, &event->wheel);
@@ -575,6 +641,21 @@ static void draw_line(const App *app, const Line *line, int y, int left, int col
     }
 }
 
+/* Highlight the selected part of a visible row. A selected line break shows as
+ * one extra column. */
+static void draw_selection(const App *app, int row, int y) {
+    const Editor *e = &app->editor;
+    Pos start, end;
+    if (!editor_selection(e, &start, &end) || row < start.row || row > end.row) return;
+
+    int from = row == start.row ? editor_screen_col(e, row, start.col) : 0;
+    int to = row == end.row ? editor_screen_col(e, row, end.col)
+                            : editor_screen_col(e, row, e->buffer.lines[row].len) + 1;
+    SDL_Rect rect = app_editor_rect(app);
+    fill_rect(app, rect.x + (from - e->left) * app->font.cell_w, y,
+              (to - from) * app->font.cell_w, app->font.cell_h, theme_current()->selected);
+}
+
 static void draw_editor(const App *app) {
     const Theme *theme = theme_current();
     SDL_Rect rect = app_editor_rect(app);
@@ -588,7 +669,9 @@ static void draw_editor(const App *app) {
         int rows = editor_rows(app);
         int cols = editor_cols(app);
         for (int i = 0; i < rows && e->top + i < e->buffer.count; i++) {
-            draw_line(app, &e->buffer.lines[e->top + i], rect.y + i * app->font.cell_h, e->left, cols);
+            int y = rect.y + i * app->font.cell_h;
+            draw_selection(app, e->top + i, y);
+            draw_line(app, &e->buffer.lines[e->top + i], y, e->left, cols);
         }
 
         int screen_row = e->row - e->top;
