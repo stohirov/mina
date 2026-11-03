@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,49 @@ static int font_size_for(SDL_Window *window) {
     return (int)(FONT_POINTS * SDL_GetWindowPixelDensity(window));
 }
 
+/* The picker may answer on another thread, so hand the result to the main loop
+ * as an event. A list with no files in it means the user cancelled. */
+static Uint32 folder_chosen_event;
+
+static void SDLCALL on_folder_chosen(void *userdata, const char *const *files, int filter) {
+    (void)userdata;
+    (void)filter;
+    if (files != NULL && files[0] == NULL) return;
+
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = folder_chosen_event;
+    event.user.data1 = files != NULL ? SDL_strdup(files[0]) : NULL;
+    event.user.data2 = files == NULL ? SDL_strdup(SDL_GetError()) : NULL;
+    SDL_PushEvent(&event);
+}
+
+static void handle_folder_chosen(App *app, const SDL_UserEvent *event) {
+    if (event->data1 != NULL) {
+        app_open_folder(app, event->data1);
+    } else {
+        char message[512];
+        SDL_snprintf(message, sizeof(message), "Cannot open the folder picker: %s", (char *)event->data2);
+        app_show_message(app, message);
+    }
+    SDL_free(event->data1);
+    SDL_free(event->data2);
+}
+
+/* The tree does not name its top folder, so the title bar does. */
+static void update_window_title(SDL_Window *window) {
+    static char shown[PATH_MAX];
+    char folder[PATH_MAX];
+    if (getcwd(folder, sizeof(folder)) == NULL || strcmp(folder, shown) == 0) return;
+    SDL_strlcpy(shown, folder, sizeof(shown));
+
+    const char *slash = strrchr(folder, '/');
+    const char *name = slash != NULL && slash[1] != '\0' ? slash + 1 : folder;
+    char title[PATH_MAX + 16];
+    SDL_snprintf(title, sizeof(title), "%s - Mina", name);
+    SDL_SetWindowTitle(window, title);
+}
+
 static int fail(const char *what) {
     fprintf(stderr, "%s: %s\n", what, SDL_GetError());
     return 1;
@@ -86,13 +130,15 @@ int main(int argc, char **argv) {
                                      &window, &renderer)) {
         return fail("Cannot create window");
     }
-    SDL_SetWindowMinimumSize(window, 500, 300);
+    /* Narrower than this, the tree and the buttons leave no room for tabs. */
+    SDL_SetWindowMinimumSize(window, 700, 300);
 
     App app;
     if (app_init(&app, renderer, font_size_for(window)) != 0) return fail("Cannot load font");
     if (file != NULL) app_open_file(&app, file);
 
     SDL_StartTextInput(window);
+    folder_chosen_event = SDL_RegisterEvents(1);
 
     while (app.running) {
         SDL_Event event;
@@ -104,11 +150,23 @@ int main(int argc, char **argv) {
                 event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 app_set_font_size(&app, font_size_for(window));
             }
-            app_handle_event(&app, &event);
+            if (event.type == folder_chosen_event) {
+                handle_folder_chosen(&app, &event.user);
+            } else {
+                app_handle_event(&app, &event);
+            }
         } while (SDL_PollEvent(&event));
 
+        update_window_title(window);
         app_draw(&app);
         SDL_RenderPresent(renderer);
+
+        if (app.wants_folder_dialog) {
+            app.wants_folder_dialog = 0;
+            char folder[PATH_MAX];
+            const char *start = getcwd(folder, sizeof(folder));
+            SDL_ShowOpenFolderDialog(on_folder_chosen, NULL, window, start, false);
+        }
     }
 
     app_free(&app);

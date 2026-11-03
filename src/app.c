@@ -16,7 +16,7 @@
 #define MAX_TAB_NAME 24
 #define MENU_COLS 12
 
-static const char *const button_labels[BUTTON_COUNT] = {"Save", "Theme"};
+static const char *const button_labels[BUTTON_COUNT] = {"Open Folder", "Save", "Theme"};
 
 static const char *const menu_labels[MENU_ITEM_COUNT] = {
     "New File", "New Folder", "Rename", "Delete",
@@ -79,7 +79,7 @@ static int tree_row_indent(const TreeRow *row) {
 /* The space for tabs: from the sidebar to the first button. */
 static SDL_Rect tab_strip_rect(const App *app) {
     int x = sidebar_width(app);
-    int right = app_button_rect(app, BUTTON_SAVE).x;
+    int right = app_button_rect(app, 0).x;
     return (SDL_Rect){x, 0, SDL_max(right - x, 1), bar_height(app)};
 }
 
@@ -139,6 +139,10 @@ static void set_message(App *app, const char *format, ...) {
     va_start(args, format);
     vsnprintf(app->message, sizeof(app->message), format, args);
     va_end(args);
+}
+
+void app_show_message(App *app, const char *message) {
+    set_message(app, "%s", message);
 }
 
 static void set_selected(App *app, const char *path) {
@@ -217,6 +221,8 @@ static void back_to_editing(App *app) {
     app->mode = MODE_EDIT;
     app->action = ACTION_NONE;
     app->pending_quit = 0;
+    free(app->pending_folder);
+    app->pending_folder = NULL;
 }
 
 static void ask_about_unsaved_changes(App *app) {
@@ -273,13 +279,63 @@ static void finish_closing_tab(App *app, int save) {
     }
 
     int quitting = app->pending_quit;
+    char *folder = app->pending_folder;
+    app->pending_folder = NULL;
     back_to_editing(app);
     remove_tab(app, app->active);
     if (quitting) {
         request_quit(app);
+    } else if (folder != NULL) {
+        app_open_folder(app, folder);
     } else if (app->tab_count > 0) {
         activate_tab(app, app->active);
     }
+    free(folder);
+}
+
+/* Ask about each unsaved tab in turn, then switch. Tab paths are relative to the
+ * current folder, so the tabs cannot stay open across the switch. */
+void app_open_folder(App *app, const char *path) {
+    back_to_editing(app);
+
+    if (access(path, R_OK | X_OK) != 0) {
+        set_message(app, "Cannot open %s: %s", path, strerror(errno));
+        return;
+    }
+
+    /* Opening the current folder again must not cost anyone their tabs. */
+    char *here = realpath(".", NULL);
+    char *there = realpath(path, NULL);
+    int same = here != NULL && there != NULL && strcmp(here, there) == 0;
+    free(here);
+    free(there);
+    if (same) {
+        set_message(app, "%s is already open", path);
+        return;
+    }
+
+    for (int i = 0; i < app->tab_count; i++) {
+        if (app->tabs[i].buffer.dirty) {
+            app->pending_folder = xstrdup(path);
+            activate_tab(app, i);
+            ask_about_unsaved_changes(app);
+            return;
+        }
+    }
+
+    if (chdir(path) != 0) {
+        set_message(app, "Cannot open %s: %s", path, strerror(errno));
+        return;
+    }
+
+    while (app->tab_count > 0) remove_tab(app, app->tab_count - 1);
+    set_selected(app, NULL);
+    tree_free(&app->tree); /* So that no folder stays expanded by name. */
+    app->tree_top = 0;
+    app->tree_left = 0;
+    app->first_tab = 0;
+    set_message(app, "Opened %s", path);
+    refresh_tree(app);
 }
 
 /* ---------- File and folder actions ---------- */
@@ -480,6 +536,10 @@ static void on_edit_key(App *app, const SDL_KeyboardEvent *key) {
         request_quit(app);
         return;
     }
+    if (command && key->key == SDLK_O) {
+        app->wants_folder_dialog = 1;
+        return;
+    }
 
     Editor *e = current_tab(app);
     if (e == NULL) return;
@@ -665,6 +725,11 @@ static void on_click(App *app, int x, int y) {
     /* A question is waiting: only y, n or Esc may answer it. */
     if (app->mode != MODE_EDIT) return;
 
+    SDL_Rect open_folder = app_button_rect(app, BUTTON_OPEN_FOLDER);
+    if (point_in(&open_folder, x, y)) {
+        app->wants_folder_dialog = 1;
+        return;
+    }
     SDL_Rect save = app_button_rect(app, BUTTON_SAVE);
     if (point_in(&save, x, y)) {
         save_file(app);
@@ -1024,4 +1089,6 @@ void app_free(App *app) {
     font_free(&app->font);
     free(app->selected);
     app->selected = NULL;
+    free(app->pending_folder);
+    app->pending_folder = NULL;
 }
