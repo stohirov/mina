@@ -3,6 +3,15 @@
 A small desktop text editor written in C: a folder tree on the left and the text
 on the right.
 
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install stohirov/tap/mina
+mina .
+```
+
 ## Download
 
 Ready-to-run builds are on the
@@ -56,13 +65,17 @@ make clean      # remove what was built
 ## Releasing
 
 `scripts/build-release.sh` builds and tests a self-contained package in `dist/`.
-GitHub Actions runs it on every push to `main`. To publish a new version on the
-Releases page, push a tag:
+GitHub Actions runs it on every push to `main`. To publish a new version, push a
+tag. The builds then appear on the Releases page, and the Homebrew formula in
+[homebrew-tap](https://github.com/stohirov/homebrew-tap) moves to that version:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
+
+Updating the formula needs the `HOMEBREW_TAP_DEPLOY_KEY` secret, which
+`scripts/setup-tap-deploy-key.sh` creates.
 
 ## Using it
 
