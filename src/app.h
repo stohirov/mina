@@ -26,6 +26,7 @@ typedef enum {
 } Action;
 
 typedef enum {
+    BUTTON_OPEN_FOLDER,
     BUTTON_SAVE,
     BUTTON_THEME,
     BUTTON_COUNT
@@ -61,6 +62,8 @@ typedef struct {
     char input[256];
     char question[512];
     int pending_quit; /* Quit once every unsaved tab has been answered for. */
+    char *pending_folder; /* The same, to open this folder. */
+    int wants_folder_dialog; /* The main loop should show the folder picker. */
 
     MenuItem menu_items[MENU_ITEM_COUNT];
     int menu_count;
@@ -84,6 +87,13 @@ void app_set_font_size(App *app, int font_size);
 
 /* Switch to the file's tab, or open it in a new one. */
 void app_open_file(App *app, const char *path);
+
+/* Make a folder the top of the tree, closing all tabs. Asks first about any
+ * unsaved tab, so the switch may happen only after later events. */
+void app_open_folder(App *app, const char *path);
+
+/* Show a message in the status bar until the next key press or click. */
+void app_show_message(App *app, const char *message);
 
 SDL_Rect app_button_rect(const App *app, Button button);
 SDL_Rect app_tree_rect(const App *app);

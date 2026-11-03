@@ -750,7 +750,7 @@ static void test_many_tabs(void) {
     CHECK(app.tab_count == 25);
 
     /* The visible tab is always fully on screen, left of the buttons. */
-    SDL_Rect save = app_button_rect(&app, BUTTON_SAVE);
+    SDL_Rect save = app_button_rect(&app, BUTTON_OPEN_FOLDER);
     SDL_Rect active = app_tab_rect(&app, app.active);
     CHECK(app.first_tab > 0);
     CHECK(active.w > 0);
@@ -774,7 +774,7 @@ static void test_many_tabs(void) {
     CHECK(app.first_tab == 24);
 
     /* A click at the end of the tabs does not land on a hidden one. */
-    click(save.x - 1, first.y + 1);
+    click(app_button_rect(&app, BUTTON_OPEN_FOLDER).x - 1, first.y + 1);
     CHECK(app.tab_count == 25);
 
     /* Closing them all from the last leaves nothing scrolled away. */
@@ -908,6 +908,11 @@ static void test_layout(void) {
     CHECK(theme.x + theme.w >= 1000 - app.font.cell_w);
     CHECK(save.x + save.w <= theme.x);
     CHECK(theme.x - (save.x + save.w) <= app.font.cell_w);
+
+    /* Open Folder is to the left of Save. */
+    SDL_Rect open_folder = app_button_rect(&app, BUTTON_OPEN_FOLDER);
+    CHECK(open_folder.x + open_folder.w <= save.x);
+    CHECK(open_folder.x > app_tree_rect(&app).x + app_tree_rect(&app).w);
     CHECK(theme.y < e.y && save.y < e.y);
 
     /* The tree runs from the top of the window down to the status bar. */
@@ -1366,6 +1371,184 @@ static void wheel_sideways(int x, int y, int ticks) {
     send(&event);
 }
 
+/* Open a folder, given relative to where the test started. */
+static char test_base[1024];
+
+static void open_folder_named(const char *name) {
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/%s", test_base, name);
+    app_open_folder(&app, path);
+}
+
+static int current_folder_ends_with(const char *name) {
+    char folder[1024];
+    if (getcwd(folder, sizeof(folder)) == NULL) return 0;
+    size_t len = strlen(folder), n = strlen(name);
+    return len >= n && strcmp(folder + len - n, name) == 0;
+}
+
+static void test_open_folder(void) {
+    start_test("folders2");
+    CHECK(getcwd(test_base, sizeof(test_base)) != NULL);
+    CHECK(fs_create_folder("one") == 0);
+    CHECK(fs_create_folder("one/sub") == 0);
+    CHECK(fs_write_file("one/sub/deep.txt", "d", 1) == 0);
+    CHECK(fs_write_file("one/a.txt", "a", 1) == 0);
+    CHECK(fs_write_file("one/b.txt", "b", 1) == 0);
+    CHECK(fs_create_folder("two") == 0);
+    CHECK(fs_write_file("two/c.txt", "c", 1) == 0);
+    CHECK(fs_create_folder("two/sub") == 0);
+    CHECK(fs_write_file("two/sub/other.txt", "o", 1) == 0);
+    send_type(SDL_EVENT_WINDOW_FOCUS_GAINED);
+
+    /* The button and Cmd-O both ask for the picker, and nothing else changes. */
+    CHECK(app.wants_folder_dialog == 0);
+    click_button(BUTTON_OPEN_FOLDER);
+    CHECK(app.wants_folder_dialog == 1);
+    app.wants_folder_dialog = 0;
+    key_mod(SDLK_O, SDL_KMOD_GUI);
+    CHECK(app.wants_folder_dialog == 1);
+    app.wants_folder_dialog = 0;
+    key_mod(SDLK_O, SDL_KMOD_CTRL);
+    CHECK(app.wants_folder_dialog == 1);
+    app.wants_folder_dialog = 0;
+    CHECK(current_folder_ends_with("/folders2"));
+
+    /* They do nothing while a question is waiting or the menu is open. */
+    menu_choose(MENU_NEW_FILE);
+    CHECK(app.mode == MODE_PROMPT);
+    click_button(BUTTON_OPEN_FOLDER);
+    key_mod(SDLK_O, SDL_KMOD_GUI);
+    CHECK(app.wants_folder_dialog == 0);
+    key(SDLK_ESCAPE);
+    right_click_tree_empty();
+    click_button(BUTTON_OPEN_FOLDER);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(app.wants_folder_dialog == 0);
+
+    /* Opening a folder shows its tree from the top, with nothing carried over. */
+    open_folder_named("one");
+    CHECK(current_folder_ends_with("/one"));
+    CHECK(strstr(app.message, "Opened") != NULL);
+    CHECK(tree_find(&app.tree, "a.txt") >= 0);
+    CHECK(tree_find(&app.tree, "two") == -1);
+    click_row("sub");
+    click_row("sub/deep.txt");
+    click_row("a.txt");
+    CHECK(app.tab_count == 2);
+
+    /* Without unsaved work the tabs just close. A folder expanded by the same
+     * name stays closed, and scrolling starts over. */
+    SDL_Rect t = app_tree_rect(&app);
+    app.tree_top = 2;
+    app.tree_left = 1;
+    open_folder_named("two");
+    CHECK(current_folder_ends_with("/two"));
+    CHECK(app.tab_count == 0);
+    CHECK(app.selected == NULL);
+    CHECK(app.tree_top == 0 && app.tree_left == 0);
+    CHECK(tree_find(&app.tree, "sub") >= 0);
+    CHECK(tree_find(&app.tree, "sub/other.txt") == -1);
+    CHECK(tree_find(&app.tree, "c.txt") >= 0);
+    CHECK(t.w > 0);
+
+    /* The current folder again, by any spelling, keeps the tabs. */
+    click_row("c.txt");
+    app_open_folder(&app, ".");
+    CHECK(strstr(app.message, "already open") != NULL);
+    CHECK(app.tab_count == 1);
+    open_folder_named("two");
+    CHECK(strstr(app.message, "already open") != NULL);
+    CHECK(app.tab_count == 1);
+
+    /* A folder that cannot be opened changes nothing. */
+    open_folder_named("missing");
+    CHECK(strstr(app.message, "Cannot open") != NULL);
+    CHECK(current_folder_ends_with("/two"));
+    CHECK(app.tab_count == 1);
+    CHECK(fs_create_folder("locked") == 0);
+    CHECK(chmod("locked", 0) == 0);
+    app_open_folder(&app, "locked");
+    CHECK(strstr(app.message, "Cannot open") != NULL);
+    CHECK(app.tab_count == 1);
+    CHECK(chmod("locked", 0755) == 0);
+    CHECK(fs_delete("locked") == 0);
+
+    /* Unsaved work is asked about first. Esc cancels, staying where we are. */
+    text("X");
+    open_folder_named("one");
+    CHECK(app.mode == MODE_CONFIRM);
+    CHECK(strstr(app.question, "c.txt") != NULL);
+    CHECK(current_folder_ends_with("/two"));
+    key(SDLK_ESCAPE);
+    CHECK(app.mode == MODE_EDIT);
+    CHECK(app.pending_folder == NULL);
+    CHECK(current_folder_ends_with("/two"));
+    CHECK(EDITOR.buffer.dirty == 1);
+
+    /* y saves into the old folder, before the switch. */
+    open_folder_named("one");
+    press_letter(SDLK_Y, "y");
+    CHECK(current_folder_ends_with("/one"));
+    CHECK(app.tab_count == 0);
+    CHECK(app.mode == MODE_EDIT);
+    char saved[1200];
+    snprintf(saved, sizeof(saved), "%s/two/c.txt", test_base);
+    CHECK(file_is(saved, "Xc"));
+
+    /* n discards, and every unsaved tab gets its turn. */
+    click_row("a.txt");
+    text("1");
+    click_row("b.txt");
+    text("2");
+    open_folder_named("two");
+    CHECK(strstr(app.question, "a.txt") != NULL);
+    press_letter(SDLK_N, "n");
+    CHECK(app.mode == MODE_CONFIRM);
+    CHECK(strstr(app.question, "b.txt") != NULL);
+    CHECK(current_folder_ends_with("/one"));
+    press_letter(SDLK_Y, "y");
+    CHECK(current_folder_ends_with("/two"));
+    CHECK(app.tab_count == 0);
+    snprintf(saved, sizeof(saved), "%s/one/a.txt", test_base);
+    CHECK(file_is(saved, "a"));
+    snprintf(saved, sizeof(saved), "%s/one/b.txt", test_base);
+    CHECK(file_is(saved, "2b"));
+
+    /* A failed save stops the switch, with the tab and its changes intact. */
+    click_row("c.txt");
+    CHECK(chmod("c.txt", 0444) == 0);
+    text("Y");
+    open_folder_named("one");
+    press_letter(SDLK_Y, "y");
+    CHECK(strstr(app.message, "Save failed") != NULL);
+    CHECK(current_folder_ends_with("/two"));
+    CHECK(app.tab_count == 1);
+    CHECK(EDITOR.buffer.dirty == 1);
+    CHECK(app.pending_folder == NULL);
+    CHECK(chmod("c.txt", 0644) == 0);
+
+    /* Quitting while one is pending wins, and the switch is forgotten. */
+    open_folder_named("one");
+    CHECK(app.pending_folder != NULL);
+    send_type(SDL_EVENT_QUIT);
+    CHECK(app.pending_folder == NULL);
+    CHECK(app.pending_quit == 1);
+    press_letter(SDLK_N, "n");
+    CHECK(app.running == 0);
+    CHECK(current_folder_ends_with("/two"));
+
+    /* Shutting down with a switch still pending leaves nothing behind. */
+    app.running = 1;
+    click_row("c.txt");
+    text("Z");
+    open_folder_named("one");
+    CHECK(app.pending_folder != NULL);
+
+    CHECK(chdir(test_base) == 0);
+    end_test();
+}
+
 static void test_tree_scrolls_sideways(void) {
     start_test("sideways");
     SDL_Rect t = app_tree_rect(&app);
@@ -1480,7 +1663,7 @@ static void test_font_size(void) {
     click(app_editor_rect(&app).x + app.font.cell_w * 2 + 1, app_editor_rect(&app).y + app.font.cell_h + 1);
     mouse_up();
     CHECK(EDITOR.row == top + 1 && EDITOR.col == 2);
-    click_tab_close("big.txt");
+    key_mod(SDLK_W, SDL_KMOD_GUI);
     CHECK(app.tab_count == 0);
     click_row("big.txt");
     CHECK(strcmp(EDITOR.path, "big.txt") == 0);
@@ -1560,6 +1743,7 @@ int main(void) {
     test_tabs_follow_files();
     test_many_tabs();
     test_right_click_menu();
+    test_open_folder();
     test_tree_scrolls_sideways();
     test_font_size();
     test_layout();

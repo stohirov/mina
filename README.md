@@ -20,7 +20,7 @@ Mina is not signed by Apple, so if you download the zip with a browser instead,
 macOS refuses to open it at first. Try to open it once, then choose **Open Anyway**
 in System Settings, under Privacy & Security.
 
-The app opens in your home folder, with the full folder tree to explore from there.
+The app opens in your home folder. Click **Open Folder** to work in another one.
 
 ### Homebrew
 
@@ -112,12 +112,14 @@ tree offers the first two, for the top folder.
 | Delete     | Delete the file, or the folder with its contents             |
 
 Questions appear in the status bar at the bottom: type a name and press Enter, or
-answer `y` or `n`. Esc cancels. Save and Theme are in the top right corner.
+answer `y` or `n`. Esc cancels. Open Folder, Save and Theme are in the top right
+corner. Opening a folder closes the open tabs, and asks first about unsaved ones.
 
 Drag with the mouse, or hold Shift while moving the cursor, to select text.
 
 | Key                 | Action                 |
 | ------------------- | ---------------------- |
+| Cmd-O or Ctrl-O     | Open a folder          |
 | Cmd-S or Ctrl-S     | Save                   |
 | Cmd-C or Ctrl-C     | Copy the selection     |
 | Cmd-V or Ctrl-V     | Paste                  |
@@ -151,8 +153,6 @@ do not all fit, scroll over them with the mouse wheel.
 
 ## Limitations
 
-- There is no way to open another folder from inside the app. Use `mina some/dir`
-  from a terminal for that.
 - English only: you can type printable ASCII, and any other character in a file
   or pasted in is shown as `?`. Those bytes are still saved unchanged.
 - There is no redo, cut or search.
