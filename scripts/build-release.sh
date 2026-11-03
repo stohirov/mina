@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build a self-contained ./editor and package it in dist/. SDL3 and FreeType are
+# Build a self-contained ./mina and package it in dist/. SDL3 and FreeType are
 # built from source and linked in, so the result needs nothing else installed.
 # GitHub Actions runs this script too, so it can be tried locally the same way.
 set -eu
@@ -78,29 +78,29 @@ make clean
 make test DEP_CFLAGS="$DEP_CFLAGS" DEP_LIBS="$DEP_LIBS"
 
 make clean
-make editor CC="$RELEASE_CC" CFLAGS="-std=gnu11 -Wall -Wextra -O2" \
+make mina CC="$RELEASE_CC" CFLAGS="-std=gnu11 -Wall -Wextra -O2" \
     DEP_CFLAGS="$DEP_CFLAGS" DEP_LIBS="$DEP_LIBS"
 
 # Fail here, rather than for whoever downloads it, if a library was not linked in.
 case "$PLATFORM" in
     macos-*)
-        if otool -L editor | grep -E 'libSDL3|libfreetype|/opt/homebrew|/usr/local'; then
-            echo "editor still depends on the libraries above" >&2
+        if otool -L mina | grep -E 'libSDL3|libfreetype|/opt/homebrew|/usr/local'; then
+            echo "mina still depends on the libraries above" >&2
             exit 1
         fi
         ;;
     *)
-        if ldd editor | grep -E 'libSDL3|libfreetype'; then
-            echo "editor still depends on the libraries above" >&2
+        if ldd mina | grep -E 'libSDL3|libfreetype'; then
+            echo "mina still depends on the libraries above" >&2
             exit 1
         fi
         ;;
 esac
 
-PACKAGE="simple-code-editor-$PLATFORM"
+PACKAGE="mina-$PLATFORM"
 rm -rf "$ROOT/dist"
 mkdir -p "$ROOT/dist/$PACKAGE"
-cp editor README.md THIRD_PARTY.md "$ROOT/dist/$PACKAGE/"
+cp mina README.md LICENSE THIRD_PARTY.md "$ROOT/dist/$PACKAGE/"
 tar -czf "$ROOT/dist/$PACKAGE.tar.gz" -C "$ROOT/dist" "$PACKAGE"
 rm -rf "$ROOT/dist/$PACKAGE"
 echo "Created dist/$PACKAGE.tar.gz"

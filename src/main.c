@@ -1,7 +1,7 @@
 /* Usage:
- *   ./editor            open the current folder
- *   ./editor folder     open that folder
- *   ./editor file.txt   open that file, with its folder in the tree
+ *   ./mina            open the current folder
+ *   ./mina folder     open that folder
+ *   ./mina file.txt   open that file, with its folder in the tree
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
 
     SDL_Window *window;
     SDL_Renderer *renderer;
-    if (!SDL_CreateWindowAndRenderer("Simple Editor", 1000, 700,
+    if (!SDL_CreateWindowAndRenderer("Mina", 1000, 700,
                                      SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY,
                                      &window, &renderer)) {
         return fail("Cannot create window");

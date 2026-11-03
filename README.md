@@ -1,4 +1,4 @@
-# simple-code-editor
+# mina
 
 A small desktop text editor written in C: a folder tree on the left and the text
 on the right.
@@ -6,34 +6,34 @@ on the right.
 ## Download
 
 Ready-to-run builds are on the
-[Releases page](https://github.com/stohirov/simple-code-editor/releases/latest),
+[Releases page](https://github.com/stohirov/mina/releases/latest),
 with nothing else to install. Windows is not supported.
 
 macOS (Apple Silicon and Intel, 11 or newer):
 
 ```sh
-curl -fL https://github.com/stohirov/simple-code-editor/releases/latest/download/simple-code-editor-macos-universal.tar.gz | tar -xz
-cd simple-code-editor-macos-universal
-./editor
+curl -fL https://github.com/stohirov/mina/releases/latest/download/mina-macos-universal.tar.gz | tar -xz
+cd mina-macos-universal
+./mina
 ```
 
 The build is not signed by Apple. If you download it with a browser instead of
 `curl`, macOS will refuse to open it until you run
-`xattr -d com.apple.quarantine editor`.
+`xattr -d com.apple.quarantine mina`.
 
 Linux (x86-64, needs a desktop with X11 or Wayland and the DejaVu or Liberation
 Mono font):
 
 ```sh
-curl -fL https://github.com/stohirov/simple-code-editor/releases/latest/download/simple-code-editor-linux-x86_64.tar.gz | tar -xz
-cd simple-code-editor-linux-x86_64
-./editor
+curl -fL https://github.com/stohirov/mina/releases/latest/download/mina-linux-x86_64.tar.gz | tar -xz
+cd mina-linux-x86_64
+./mina
 ```
 
 ```sh
-./editor            # open the current folder
-./editor some/dir   # open that folder
-./editor notes.txt  # open that file, with its folder in the tree
+./mina            # open the current folder
+./mina some/dir   # open that folder
+./mina notes.txt  # open that file, with its folder in the tree
 ```
 
 ## Build from source
@@ -48,7 +48,7 @@ brew install sdl3 freetype
 On Linux, install them with your package manager, along with `pkg-config`.
 
 ```sh
-make            # build ./editor
+make            # build ./mina
 make test       # run the tests
 make clean      # remove what was built
 ```
@@ -121,3 +121,8 @@ do not all fit, scroll over them with the mouse wheel.
   or pasted in is shown as `?`. Those bytes are still saved unchanged.
 - There is no redo, cut or search.
 - Saving overwrites the file in place, so a crash mid-save can damage it.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The downloadable builds also include the libraries
+listed in [THIRD_PARTY.md](THIRD_PARTY.md).

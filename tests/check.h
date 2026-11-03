@@ -31,7 +31,7 @@ static int file_is(const char *path, const char *expected) {
 /* Tests run in a new temporary folder, so they cannot touch real files. */
 static void enter_temp_folder(char *folder, size_t size) {
     const char *base = getenv("TMPDIR");
-    snprintf(folder, size, "%s/editor_test_XXXXXX", base != NULL ? base : "/tmp");
+    snprintf(folder, size, "%s/mina_test_XXXXXX", base != NULL ? base : "/tmp");
     if (mkdtemp(folder) == NULL || chdir(folder) != 0) {
         perror("could not set up the test folder");
         exit(1);

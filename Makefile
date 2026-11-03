@@ -15,8 +15,8 @@ UI = src/theme.c src/font.c src/app.c
 HDR = $(wildcard src/*.h tests/*.h)
 SANITIZE = -fsanitize=address,undefined
 
-editor: src/main.c $(CORE) $(UI) $(HDR)
-	$(CC) $(CFLAGS) $(DEP_CFLAGS) src/main.c $(CORE) $(UI) $(DEP_LIBS) -o editor
+mina: src/main.c $(CORE) $(UI) $(HDR)
+	$(CC) $(CFLAGS) $(DEP_CFLAGS) src/main.c $(CORE) $(UI) $(DEP_LIBS) -o mina
 
 test: tests/test.c tests/test_app.c $(CORE) $(UI) $(HDR)
 	$(CC) $(CFLAGS) $(SANITIZE) -Isrc tests/test.c $(CORE) -o run_tests
@@ -25,6 +25,6 @@ test: tests/test.c tests/test_app.c $(CORE) $(UI) $(HDR)
 	./run_app_tests
 
 clean:
-	rm -rf editor run_tests run_app_tests *.dSYM
+	rm -rf mina run_tests run_app_tests *.dSYM
 
 .PHONY: test clean
