@@ -1,25 +1,13 @@
 #include "buffer.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* malloc and realloc return NULL when memory runs out. This editor cannot do
- * anything useful at that point, so we stop in one place instead of checking
- * after every call. */
-static void *checked_realloc(void *ptr, size_t size) {
-    void *result = realloc(ptr, size);
-    if (result == NULL) {
-        perror("out of memory");
-        exit(1);
-    }
-    return result;
-}
+#include "util.h"
 
-/* Make a Line holding a copy of len bytes from text. */
 static Line make_line(const char *text, size_t len) {
     Line line;
-    line.text = checked_realloc(NULL, len + 1);
+    line.text = xrealloc(NULL, len + 1);
     if (len > 0) memcpy(line.text, text, len);
     line.text[len] = '\0';
     line.len = (int)len;
@@ -27,13 +15,12 @@ static Line make_line(const char *text, size_t len) {
 }
 
 void buffer_init(Buffer *b, const char *text, size_t len) {
-    /* Count the lines first, so we can allocate the array once. */
     int count = 1;
     for (size_t i = 0; i < len; i++) {
         if (text[i] == '\n') count++;
     }
 
-    b->lines = checked_realloc(NULL, sizeof(Line) * count);
+    b->lines = xrealloc(NULL, sizeof(Line) * (size_t)count);
     b->count = 0;
     b->dirty = 0;
 
@@ -58,13 +45,13 @@ void buffer_free(Buffer *b) {
 char *buffer_to_text(const Buffer *b, size_t *out_len) {
     size_t total = 0;
     for (int i = 0; i < b->count; i++) {
-        total += (size_t)b->lines[i].len + 1; /* +1 for '\n' or the final '\0'. */
+        total += (size_t)b->lines[i].len + 1; /* '\n' or the final '\0'. */
     }
 
-    char *text = checked_realloc(NULL, total);
+    char *text = xrealloc(NULL, total);
     char *p = text;
     for (int i = 0; i < b->count; i++) {
-        memcpy(p, b->lines[i].text, b->lines[i].len);
+        memcpy(p, b->lines[i].text, (size_t)b->lines[i].len);
         p += b->lines[i].len;
         if (i < b->count - 1) *p++ = '\n';
     }
@@ -75,9 +62,7 @@ char *buffer_to_text(const Buffer *b, size_t *out_len) {
 
 void buffer_insert_char(Buffer *b, int row, int col, char c) {
     Line *line = &b->lines[row];
-    line->text = checked_realloc(line->text, (size_t)line->len + 2);
-    /* Shift the rest of the line, including its '\0', one byte to the right.
-     * memmove (not memcpy) is required because the two areas overlap. */
+    line->text = xrealloc(line->text, (size_t)line->len + 2);
     memmove(line->text + col + 1, line->text + col, (size_t)(line->len - col) + 1);
     line->text[col] = c;
     line->len++;
@@ -94,7 +79,7 @@ void buffer_delete_char(Buffer *b, int row, int col) {
 void buffer_split_line(Buffer *b, int row, int col) {
     Line tail = make_line(b->lines[row].text + col, (size_t)(b->lines[row].len - col));
 
-    b->lines = checked_realloc(b->lines, sizeof(Line) * ((size_t)b->count + 1));
+    b->lines = xrealloc(b->lines, sizeof(Line) * ((size_t)b->count + 1));
     memmove(&b->lines[row + 2], &b->lines[row + 1], sizeof(Line) * (size_t)(b->count - row - 1));
     b->lines[row + 1] = tail;
     b->count++;
@@ -108,7 +93,7 @@ void buffer_join_with_next(Buffer *b, int row) {
     Line *line = &b->lines[row];
     Line *next = &b->lines[row + 1];
 
-    line->text = checked_realloc(line->text, (size_t)line->len + (size_t)next->len + 1);
+    line->text = xrealloc(line->text, (size_t)line->len + (size_t)next->len + 1);
     memcpy(line->text + line->len, next->text, (size_t)next->len + 1);
     line->len += next->len;
     free(next->text);

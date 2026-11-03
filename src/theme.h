@@ -1,13 +1,19 @@
-/* theme.h - the light and dark color themes. */
 #ifndef THEME_H
 #define THEME_H
 
-/* Each color is the escape sequence that tells the terminal to switch to it. */
+typedef struct {
+    unsigned char r, g, b;
+} Color;
+
 typedef struct {
     const char *name;
-    const char *text;     /* Normal text. */
-    const char *bar;      /* The status bar. */
-    const char *selected; /* The highlighted row in the file list. */
+    Color background;
+    Color text;
+    Color sidebar;
+    Color selected;
+    Color bar;
+    Color button;
+    Color cursor;
 } Theme;
 
 const Theme *theme_current(void);

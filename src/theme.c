@@ -1,19 +1,25 @@
 #include "theme.h"
 
-/* ESC [ 38;5;N m sets the text color and ESC [ 48;5;N m sets the background,
- * where N is one of the terminal's 256 colors. Try changing the numbers! */
 static const Theme dark = {
     .name = "dark",
-    .text = "\x1b[38;5;252;48;5;234m",
-    .bar = "\x1b[38;5;234;48;5;250m",
-    .selected = "\x1b[38;5;231;48;5;25m",
+    .background = {0x1e, 0x1e, 0x1e},
+    .text = {0xd4, 0xd4, 0xd4},
+    .sidebar = {0x25, 0x25, 0x26},
+    .selected = {0x26, 0x4f, 0x78},
+    .bar = {0x33, 0x33, 0x33},
+    .button = {0x4a, 0x4a, 0x4a},
+    .cursor = {0xff, 0xff, 0xff},
 };
 
 static const Theme light = {
     .name = "light",
-    .text = "\x1b[38;5;235;48;5;231m",
-    .bar = "\x1b[38;5;231;48;5;240m",
-    .selected = "\x1b[38;5;16;48;5;153m",
+    .background = {0xff, 0xff, 0xff},
+    .text = {0x1e, 0x1e, 0x1e},
+    .sidebar = {0xf3, 0xf3, 0xf3},
+    .selected = {0xad, 0xd6, 0xff},
+    .bar = {0xe0, 0xe0, 0xe0},
+    .button = {0xcf, 0xcf, 0xcf},
+    .cursor = {0x00, 0x00, 0x00},
 };
 
 static const Theme *current = &dark;

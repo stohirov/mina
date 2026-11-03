@@ -1,4 +1,5 @@
 editor
 run_tests
+run_app_tests
 *.dSYM/
 *.o
