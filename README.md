@@ -3,7 +3,40 @@
 A small desktop text editor written in C: a folder tree on the left and the text
 on the right.
 
-## Setup
+## Download
+
+Ready-to-run builds are on the
+[Releases page](https://github.com/stohirov/simple-code-editor/releases/latest),
+with nothing else to install. Windows is not supported.
+
+macOS (Apple Silicon and Intel, 11 or newer):
+
+```sh
+curl -fL https://github.com/stohirov/simple-code-editor/releases/latest/download/simple-code-editor-macos-universal.tar.gz | tar -xz
+cd simple-code-editor-macos-universal
+./editor
+```
+
+The build is not signed by Apple. If you download it with a browser instead of
+`curl`, macOS will refuse to open it until you run
+`xattr -d com.apple.quarantine editor`.
+
+Linux (x86-64, needs a desktop with X11 or Wayland and the DejaVu or Liberation
+Mono font):
+
+```sh
+curl -fL https://github.com/stohirov/simple-code-editor/releases/latest/download/simple-code-editor-linux-x86_64.tar.gz | tar -xz
+cd simple-code-editor-linux-x86_64
+./editor
+```
+
+```sh
+./editor            # open the current folder
+./editor some/dir   # open that folder
+./editor notes.txt  # open that file, with its folder in the tree
+```
+
+## Build from source
 
 It needs a C compiler and two C libraries, SDL3 for the window and FreeType for
 the text. On macOS:
@@ -12,19 +45,23 @@ the text. On macOS:
 brew install sdl3 freetype
 ```
 
-Tested on macOS. It should also work on Linux with `pkg-config` and those two
-libraries installed.
-
-## Build and run
+On Linux, install them with your package manager, along with `pkg-config`.
 
 ```sh
 make            # build ./editor
 make test       # run the tests
 make clean      # remove what was built
+```
 
-./editor            # open the current folder
-./editor some/dir   # open that folder
-./editor notes.txt  # open that file, with its folder in the tree
+## Releasing
+
+`scripts/build-release.sh` builds and tests a self-contained package in `dist/`.
+GitHub Actions runs it on every push to `main`. To publish a new version on the
+Releases page, push a tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## Using it
